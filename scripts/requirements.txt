@@ -1,0 +1,4 @@
+requests
+sqlalchemy
+beautifulsoup4
+psycopg2-binary

@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#14171C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Индекс парковки</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
+<script src="https://unpkg.com/@protomaps/basemaps@5/dist/index.js"></script>
+<style>
+  :root {
+    --bg-deep: #14171C;
+    --surface: #1E222A;
+    --surface-raised: #262B35;
+    --hairline: #333A46;
+    --amber: #FFB020;
+    --amber-dim: rgba(255, 176, 32, 0.18);
+    --green: #3DDC84;
+    --red: #FF5A5F;
+    --text-primary: #F2F0EA;
+    --text-muted: #8B95A6;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    overscroll-behavior: none;
+  }
+
+  #app { position: absolute; inset: 0; }
+
+  .screen {
+    position: absolute; inset: 0;
+    display: none;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+  .screen.active { display: block; }
+
+  /* ============ ЭКРАН: КАРТА ============ */
+  #screen-map { padding-bottom: 0; }
+  #map { position: absolute; inset: 0; }
+
+  /* Тонировка поверх векторной карты — сдвигает палитру к нашей теме и
+     убирает ощущение "типовой карты", независимо от исходных цветов тайлов. */
+  /* Тонировка карты убрана — переключились на светлый стиль Liberty,
+     собственная палитра подписей/дорог там уже хорошо читаема без правки. */
+  #map-tint { display: none; }
+
+  #status-pill {
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 34, 42, 0.82);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 10px 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    z-index: 10;
+    white-space: nowrap;
+  }
+  #status-pill .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2.2s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(61,220,132,.5); }
+    70%  { box-shadow: 0 0 0 6px rgba(61,220,132,0); }
+    100% { box-shadow: 0 0 0 0 rgba(61,220,132,0); }
+  }
+  #status-pill strong { font-family: var(--font-display); color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  #legend {
+    position: absolute;
+    bottom: calc(64px + env(safe-area-inset-bottom) + 16px);
+    left: 16px;
+    z-index: 10;
+    background: rgba(30, 34, 42, 0.82);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  #legend.hidden { opacity: 0; transform: translateY(8px); pointer-events: none; }
+  #legend .row { display: flex; align-items: center; gap: 8px; }
+  #legend .swatch { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ============ Переключатель слоёв (Зоны / DEMO) ============ */
+  #layer-toggle {
+    position: absolute;
+    top: calc(max(16px, env(safe-area-inset-top)) + 52px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    background: rgba(30, 34, 42, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .layer-btn {
+    border: none; background: none; cursor: pointer;
+    padding: 7px 16px; border-radius: 999px;
+    font-family: var(--font-body); font-weight: 600; font-size: 12.5px;
+    color: var(--text-muted);
+    transition: background .15s ease, color .15s ease;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .layer-btn.active { background: var(--surface-raised); color: var(--text-primary); }
+  .layer-btn .demo-shine {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: linear-gradient(135deg, #E8ECF2, #9AA3B2 45%, #E8ECF2 70%, #C4CAD4);
+    box-shadow: 0 0 4px rgba(230,235,242,.7);
+  }
+
+  #demo-watermark {
+    display: none;
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    right: 16px;
+    z-index: 10;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: #262B35;
+    background: linear-gradient(135deg, #F2F4F7, #A8AFBC 40%, #F8F9FA 55%, #9AA3B2 80%, #E8ECF2);
+    border: 1px solid rgba(255,255,255,.6);
+    box-shadow: 0 2px 10px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.5);
+  }
+
+  /* ============ ЭКРАН: СПИСОК ЗОН ============ */
+  #screen-list { overflow-y: auto; padding-top: max(20px, env(safe-area-inset-top)); }
+  #list-header { padding: 0 20px 16px; }
+  #list-header h1 {
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+  #list-header p { margin: 0; font-size: 13px; color: var(--text-muted); }
+
+  .zone-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 0 16px 10px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 16px;
+    cursor: pointer;
+    transition: transform .12s ease, border-color .15s ease;
+  }
+  .zone-card:active { transform: scale(.98); border-color: var(--amber); }
+  .zone-badge {
+    flex-shrink: 0;
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .zone-info { flex: 1; min-width: 0; }
+  .zone-info .name {
+    font-weight: 600; font-size: 14px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .zone-info .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ============ ЭКРАН: ПРОФИЛЬ ============ */
+  /* ---- "Твой вклад" — акцентная карточка со статистикой ---- */
+  .profile-stat-card {
+    background: linear-gradient(135deg, rgba(255,176,32,0.14), rgba(61,220,132,0.08));
+    border: 1px solid rgba(255,176,32,0.3);
+    border-radius: 18px;
+    padding: 20px;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 18px;
+  }
+  .profile-stat-number {
+    font-family: var(--font-display); font-weight: 700; font-size: 40px;
+    color: var(--amber); line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .profile-stat-label { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
+  .profile-stat-sub { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+  /* ---- Шкала — градиентная полоса вместо списка ---- */
+  .profile-gradient-bar {
+    height: 10px; border-radius: 999px; margin: 10px 0 12px;
+    background: linear-gradient(90deg, #FF5A5F, #FFB020 50%, #3DDC84);
+  }
+  .profile-gradient-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+
+  /* ---- "Что это на самом деле" — карточка-цитата ---- */
+  .profile-quote-card {
+    background: transparent;
+    border: none; border-left: 3px solid var(--amber);
+    border-radius: 4px;
+    padding: 4px 0 4px 16px;
+    margin-bottom: 14px;
+  }
+  .profile-quote-card p { font-style: italic; color: var(--text-muted); }
+
+  /* ---- Пилот — карточка с декоративным кольцом ---- */
+  .profile-pilot-card {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 18px;
+    padding: 18px; margin-bottom: 14px;
+  }
+  .profile-pilot-ring {
+    flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%;
+    border: 4px solid var(--amber); border-right-color: var(--hairline); border-bottom-color: var(--hairline);
+    transform: rotate(-45deg);
+  }
+
+  #screen-profile { overflow-y: auto; padding: max(20px, env(safe-area-inset-top)) 20px 0; }
+  #screen-profile h1 { font-family: var(--font-display); font-size: 24px; margin: 0 0 20px; }
+  .profile-block {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 16px;
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+  .profile-block h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-muted); margin: 0 0 10px; font-weight: 600;
+  }
+  .profile-block p { font-size: 14px; line-height: 1.5; margin: 0 0 8px; color: var(--text-primary); }
+  .profile-block p:last-child { margin-bottom: 0; }
+  .legend-line { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 4px 0; }
+  .legend-line .swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #app-version { text-align: center; font-size: 12px; color: var(--text-muted); padding: 16px 0 24px; }
+
+  /* ============ НИЖНЯЯ НАВИГАЦИЯ ============ */
+  #tabbar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: calc(64px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(30, 34, 42, 0.92);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    z-index: 15;
+  }
+  .tab-btn {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px;
+    background: none; border: none;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    cursor: pointer;
+    transition: color .15s ease;
+  }
+  .tab-btn svg { width: 22px; height: 22px; }
+  .tab-btn.active { color: var(--amber); }
+  .tab-btn.active svg circle.fill { fill: var(--amber-dim); }
+
+  /* ============ Геолокация ============ */
+  #locate-btn {
+    position: absolute;
+    bottom: 96px; right: 16px;
+    z-index: 10;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--hairline);
+    background: rgba(30, 34, 42, 0.9);
+    color: var(--text-primary);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  #locate-btn svg { width: 20px; height: 20px; }
+  #locate-btn.active { color: var(--amber); border-color: var(--amber); }
+
+  #search-btn {
+    position: absolute;
+    bottom: 146px; right: 16px;
+    z-index: 10;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--hairline);
+    background: rgba(30, 34, 42, 0.9);
+    color: var(--text-primary);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  #search-btn svg { width: 19px; height: 19px; }
+
+  /* refine-btn убран — поиск теперь всегда доступен через #search-btn,
+     отдельная кнопка "уточнить" после ошибки геолокации была лишним дублем. */
+
+  #refine-panel {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    z-index: 35;
+    background: var(--surface);
+    border-top-left-radius: 24px; border-top-right-radius: 24px;
+    border: 1px solid var(--hairline); border-bottom: none;
+    padding: 18px 20px calc(20px + env(safe-area-inset-bottom));
+    transform: translateY(105%);
+    transition: transform .3s cubic-bezier(.32,.72,0,1);
+  }
+  #refine-panel.open { transform: translateY(0); }
+  #refine-panel h3 { font-family: var(--font-display); font-size: 16px; margin: 0 0 6px; }
+  #refine-panel p { font-size: 13px; color: var(--text-muted); margin: 0 0 14px; line-height: 1.4; }
+  #refine-input {
+    width: 100%; box-sizing: border-box; padding: 12px 14px;
+    border-radius: 12px; border: 1px solid var(--hairline);
+    background: var(--surface-raised); color: var(--text-primary);
+    font-size: 14px; font-family: var(--font-body); margin-bottom: 10px;
+  }
+  .refine-result {
+    padding: 10px 12px; border-radius: 10px; font-size: 13.5px;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .refine-result:hover, .refine-result:active { background: var(--surface-raised); border-color: var(--hairline); }
+  #refine-close-btn {
+    margin-top: 10px; width: 100%; padding: 12px 0; border-radius: 12px;
+    border: 1px solid var(--hairline); background: none; color: var(--text-muted);
+    font-family: var(--font-body); font-size: 13px; cursor: pointer;
+  }
+
+  #explain-block {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
+  }
+  .explain-chip {
+    font-size: 11.5px; padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--hairline); color: var(--text-muted);
+  }
+  .explain-chip.down { border-color: rgba(255,90,95,0.4); color: #FF8A8E; }
+  .explain-chip.up { border-color: rgba(61,220,132,0.4); color: #6FE8A8; }
+
+  #action-row { display: flex; gap: 10px; margin-top: 16px; }
+  .action-btn {
+    flex: 1; padding: 11px 0; border-radius: 12px; border: 1px solid var(--hairline);
+    background: var(--surface-raised); color: var(--text-primary);
+    font-family: var(--font-body); font-size: 12.5px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  #distance-to-user { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+  #weather-pill {
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    left: 16px;
+    z-index: 10;
+    background: rgba(30, 34, 42, 0.82);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: none;
+  }
+
+  #sheet-extra-meta {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--text-muted); margin-top: 6px; flex-wrap: wrap;
+  }
+  .trend-icon { font-weight: 700; }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+  .trend-flat { color: var(--text-muted); }
+
+  #fav-btn {
+    position: absolute; top: 14px; left: 14px;
+    width: 30px; height: 30px; border-radius: 50%;
+    border: none; background: var(--surface-raised); color: var(--text-muted);
+    font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  #fav-btn.active { color: var(--amber); }
+
+  /* ============ Фильтры на экране "Зоны" ============ */
+  #filter-chips { display: flex; gap: 8px; padding: 0 16px 14px; overflow-x: auto; }
+  .filter-chip {
+    flex-shrink: 0; padding: 7px 14px; border-radius: 999px;
+    border: 1px solid var(--hairline); background: var(--surface);
+    color: var(--text-muted); font-size: 12.5px; font-weight: 600;
+    font-family: var(--font-body); cursor: pointer; white-space: nowrap;
+  }
+  .filter-chip.active { background: var(--amber); color: #1A1206; border-color: var(--amber); }
+
+  /* ============ Дисклеймер при первом запуске ============ */
+  #disclaimer-modal {
+    position: absolute; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  #disclaimer-modal.hidden { display: none; }
+  #disclaimer-card {
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 20px;
+    padding: 28px 24px 24px; max-width: 360px; text-align: center;
+  }
+  #disclaimer-card h2 { font-family: var(--font-display); font-size: 19px; margin: 4px 0 14px; text-align: left; }
+  #disclaimer-card p { font-size: 13.5px; line-height: 1.5; color: var(--text-primary); margin: 0 0 10px; text-align: left; }
+  #disclaimer-card .disclaimer-fineprint { color: var(--text-muted); font-size: 12px; }
+  #disclaimer-ok { width: 100%; margin-top: 8px; padding: 13px 0; border-radius: 12px; border: none;
+    background: var(--amber); color: #1A1206; font-weight: 700; font-family: var(--font-body);
+    font-size: 14px; cursor: pointer; }
+
+  /* ---- Пульсирующая визуализация коллективного вклада ---- */
+  #pulse-visual {
+    position: relative; width: 130px; height: 130px; margin: 0 auto 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pulse-ring {
+    position: absolute; border-radius: 50%;
+    border: 1.5px solid var(--amber);
+    animation: pulse-out 2.6s ease-out infinite;
+    opacity: 0;
+  }
+  .pulse-ring.r1 { width: 60px; height: 60px; animation-delay: 0s; }
+  .pulse-ring.r2 { width: 60px; height: 60px; animation-delay: .8s; }
+  .pulse-ring.r3 { width: 60px; height: 60px; animation-delay: 1.6s; }
+  @keyframes pulse-out {
+    0%   { width: 60px; height: 60px; opacity: .8; }
+    100% { width: 130px; height: 130px; opacity: 0; }
+  }
+  #pulse-number {
+    position: relative; z-index: 1;
+    width: 76px; height: 76px; border-radius: 50%;
+    background: var(--surface-raised); border: 2px solid var(--amber);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 700; font-size: 17px;
+    color: var(--amber); font-variant-numeric: tabular-nums; text-align: center; line-height: 1.1;
+  }
+  @media (prefers-reduced-motion: reduce) { .pulse-ring { animation: none; opacity: .3; } }
+
+  /* ============ Затемнение под sheet ============ */
+  #sheet-scrim {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 25;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease;
+  }
+  #sheet-scrim.open { opacity: 1; pointer-events: auto; }
+
+  /* ============ Bottom sheet (общий для карты и списка) ============ */
+  #sheet {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: var(--surface);
+    border-top-left-radius: 24px;
+    border-top-right-radius: 24px;
+    border: 1px solid var(--hairline);
+    border-bottom: none;
+    box-shadow: 0 -8px 40px rgba(0,0,0,.45);
+    padding: 10px 24px max(24px, env(safe-area-inset-bottom));
+    transform: translateY(105%);
+    transition: transform .32s cubic-bezier(.32, .72, 0, 1);
+    z-index: 30;
+    max-height: 66vh;
+    overflow-y: auto;
+  }
+  #sheet.open { transform: translateY(0); }
+  #sheet .handle { width: 36px; height: 4px; border-radius: 2px; background: var(--hairline); margin: 0 auto 18px; }
+
+  #sheet-header { display: flex; align-items: center; gap: 18px; }
+  #gauge-wrap { flex-shrink: 0; position: relative; width: 104px; height: 104px; }
+  #gauge-wrap svg { width: 100%; height: 100%; }
+  #gauge-number {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 26px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    padding: 0 6px;
+  }
+  #gauge-number.range { font-size: 15px; }
+
+  #sheet-meta { flex: 1; min-width: 0; }
+  #sheet-zone-name {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 18px;
+    margin: 0 0 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #sheet-zone-sub { font-size: 13px; color: var(--text-muted); margin: 0; }
+  #sheet-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-top: 6px; }
+
+  #hetero-note {
+    display: none;
+    margin-top: 14px; padding: 10px 12px;
+    background: rgba(255,176,32,0.1); border: 1px solid rgba(255,176,32,0.35);
+    border-radius: 12px; font-size: 12.5px; color: var(--text-primary); line-height: 1.4;
+  }
+
+  #alt-block { display: none; margin-top: 20px; }
+  #alt-block h3 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-muted); margin: 0 0 10px; font-weight: 600;
+  }
+  .alt-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+    background: var(--surface-raised); border: 1px solid var(--hairline); border-radius: 14px;
+    cursor: pointer; transition: transform .12s ease, border-color .15s ease;
+  }
+  .alt-card:active { transform: scale(.97); border-color: var(--green); }
+  .alt-card .alt-name { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .alt-card .alt-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .alt-card .alt-badge {
+    flex-shrink: 0; font-family: var(--font-display); font-weight: 700; font-size: 13px;
+    padding: 4px 10px; border-radius: 999px; font-variant-numeric: tabular-nums;
+  }
+  #alt-empty { font-size: 13px; color: var(--text-muted); padding: 6px 0; display: none; }
+
+  #feedback-block { margin-top: 24px; }
+  #feedback-question { font-size: 14px; color: var(--text-muted); margin: 0 0 12px; }
+  #feedback-buttons { display: flex; gap: 12px; }
+  .fb-btn {
+    flex: 1; padding: 14px 0; border-radius: 14px;
+    border: 1px solid var(--hairline);
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-weight: 600; font-size: 15px; cursor: pointer;
+    transition: transform .12s ease, background .15s ease, border-color .15s ease;
+  }
+  .fb-btn:active { transform: scale(.96); }
+  .fb-btn.yes.chosen { background: var(--green); color: #0B1410; border-color: var(--green); }
+  .fb-btn.no.chosen { background: var(--red); color: #1A0B0C; border-color: var(--red); }
+  #feedback-thanks { display: none; align-items: center; gap: 10px; padding: 14px 0; font-size: 14px; color: var(--green); }
+
+  #sheet-close {
+    position: absolute; top: 14px; right: 14px;
+    width: 30px; height: 30px; border-radius: 50%;
+    border: none; background: var(--surface-raised); color: var(--text-muted);
+    font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  #boot-state {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; z-index: 40;
+    background: var(--bg-deep);
+    transition: opacity .3s ease;
+  }
+  #boot-state.hidden { opacity: 0; pointer-events: none; }
+  #boot-state .ring {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 3px solid var(--hairline); border-top-color: var(--amber);
+    animation: spin 0.9s linear infinite;
+  }
+  #boot-state p { color: var(--text-muted); font-size: 14px; margin: 0; font-family: var(--font-body); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #error-banner {
+    position: absolute;
+    top: max(70px, calc(env(safe-area-inset-top) + 70px));
+    left: 16px; max-width: 320px; z-index: 10;
+    background: rgba(255, 90, 95, 0.12);
+    border: 1px solid var(--red);
+    color: var(--text-primary);
+    border-radius: 14px; padding: 12px 36px 12px 16px; font-size: 13px;
+    display: none;
+  }
+  #error-banner-close {
+    position: absolute; top: 8px; right: 8px;
+    width: 22px; height: 22px; border-radius: 50%;
+    border: none; background: rgba(255,255,255,0.1); color: var(--text-primary);
+    font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ============ Адаптив под компьютер (широкий экран) ============ */
+  @media (min-width: 860px) {
+    #tabbar {
+      left: 0; top: 0; bottom: 0; right: auto;
+      width: 84px; height: 100%;
+      flex-direction: column; justify-content: flex-start; gap: 8px;
+      padding-top: 24px; padding-bottom: 0;
+      border-top: none; border-right: 1px solid var(--hairline);
+    }
+    .tab-btn { flex: 0 0 auto; padding: 12px 0; }
+    .screen { left: 84px; padding-bottom: 0; }
+    #screen-map { left: 84px; }
+
+    #sheet {
+      left: auto; right: 0; top: 0; bottom: 0;
+      width: 400px; max-width: 40vw;
+      border-radius: 0; border-top: none; border-left: 1px solid var(--hairline);
+      transform: translateX(105%);
+      max-height: none;
+    }
+    #sheet.open { transform: translateX(0); }
+    #sheet-scrim { left: 84px; }
+
+    #list-header, #filter-chips { max-width: 900px; margin-left: auto; margin-right: auto; }
+    #list-container {
+      max-width: 900px; margin-left: auto; margin-right: auto;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start;
+    }
+    .zone-card { margin: 0; } /* сетка уже даёт отступы через gap */
+
+    #screen-profile {
+      max-width: 920px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-content: start;
+    }
+    #screen-profile h1 { grid-column: 1 / -1; }
+    /* Широкие блоки — на всю ширину сетки, остальные карточки — по колонкам */
+    .profile-block:has(#feedback-message),
+    .profile-quote-card,
+    #app-version { grid-column: 1 / -1; }
+    .profile-block, .profile-stat-card, .profile-pilot-card, .profile-quote-card { margin-bottom: 0; }
+
+    #locate-btn, #search-btn { right: 24px; }
+    #locate-btn { bottom: 24px; }
+    #search-btn { bottom: 76px; }
+    #legend { left: 100px; bottom: 16px; }
+    #demo-watermark { right: 24px; }
+
+    #refine-panel {
+      left: auto; right: 24px; bottom: 76px; top: auto;
+      max-width: 380px; border-radius: 20px;
+      border: 1px solid var(--hairline);
+      box-shadow: 0 8px 40px rgba(0,0,0,.4);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #sheet, #legend, #boot-state { transition: none; }
+    #status-pill .dot, #boot-state .ring { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="disclaimer-modal" class="hidden">
+  <div id="disclaimer-card">
+    <div id="pulse-visual">
+      <div class="pulse-ring r1"></div>
+      <div class="pulse-ring r2"></div>
+      <div class="pulse-ring r3"></div>
+      <div id="pulse-number">—</div>
+    </div>
+    <h2>Каждая отметка делает точнее для всех</h2>
+    <p>Это не просто цифра на экране — это общий результат тех, кто уже отметил «нашёл» или «не нашёл» до тебя. Твоя отметка присоединится к их числу и поможет следующему человеку.</p>
+    <p class="disclaimer-fineprint">Индекс строится на открытых данных (тариф, время, погода, календарь) — это оценка, не гарантия и не точный подсчёт мест. Чем больше отметок — тем она точнее.</p>
+    <button id="disclaimer-ok">Присоединиться</button>
+  </div>
+</div>
+
+<div id="boot-state">
+  <div class="ring"></div>
+  <p>Загружаю карту зон…</p>
+</div>
+
+<div id="app">
+
+  <section id="screen-map" class="screen active">
+    <div id="map"></div>
+    <div id="map-tint"></div>
+    <div id="status-pill">
+      <span class="dot"></span>
+      <span>Садовое кольцо · <strong id="zone-count">—</strong> зон</span>
+    </div>
+    <div id="layer-toggle">
+      <button class="layer-btn active" data-layer="cluster">Зоны</button>
+      <button class="layer-btn" data-layer="demo"><span class="demo-shine"></span>DEMO</button>
+    </div>
+    <div id="error-banner"><button id="error-banner-close" aria-label="Закрыть">✕</button><span id="error-banner-text"></span></div>
+    <div id="weather-pill"></div>
+    <div id="demo-watermark">DEMO</div>
+    <button id="locate-btn" aria-label="Моё местоположение">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <button id="search-btn" aria-label="Найти адрес">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div id="legend">
+      <div class="row"><span class="swatch" style="background:#3DDC84"></span>Высокая доступность</div>
+      <div class="row"><span class="swatch" style="background:#FFB020"></span>Средняя</div>
+      <div class="row"><span class="swatch" style="background:#FF5A5F"></span>Низкая</div>
+    </div>
+  </section>
+
+  <section id="screen-list" class="screen">
+    <div id="list-header">
+      <h1>Зоны</h1>
+      <p>От самых занятых до самых свободных</p>
+    </div>
+    <div id="filter-chips">
+      <button class="filter-chip active" data-filter="all">Все</button>
+      <button class="filter-chip" data-filter="favorites">★ Избранное</button>
+      <button class="filter-chip" data-filter="free">Бесплатно</button>
+      <button class="filter-chip" data-filter="nearest">Ближайшие</button>
+      <button class="filter-chip" data-filter="reliable">Надёжные данные</button>
+    </div>
+    <div id="list-container"></div>
+  </section>
+
+  <section id="screen-profile" class="screen">
+    <h1>Профиль</h1>
+
+    <div class="profile-block" style="border-color: rgba(61,220,132,0.35);">
+      <h2>Без регистрации — намеренно</h2>
+      <p>Здесь нет входа, аккаунта и личного кабинета. Мы не собираем ни телефон, ни имя, ни что-либо, что можно привязать к тебе лично. Отметки «нашёл/не нашёл» анонимны и идут в общую копилку — они делают модель точнее для всех, а не для чьего-то личного профиля.</p>
+    </div>
+
+    <div class="profile-stat-card">
+      <div>
+        <div class="profile-stat-number" id="stat-total">—</div>
+        <div class="profile-stat-label">отметок от всех<br>с начала работы</div>
+      </div>
+      <div class="profile-stat-sub" id="stat-breakdown">Загружаю…</div>
+    </div>
+
+    <div class="profile-block">
+      <h2>Самые проверенные зоны сегодня</h2>
+      <div id="top-verified-list" style="font-size:13px; color:var(--text-muted);">Загружаю…</div>
+    </div>
+
+
+    <div class="profile-block">
+      <h2>Как читать шкалу</h2>
+      <div class="profile-gradient-bar"></div>
+      <div class="profile-gradient-ticks"><span>0% занято</span><span>50%</span><span>100% свободно</span></div>
+    </div>
+
+    <div class="profile-quote-card">
+      <p>«Индекс — это оценка на основе тарифа зоны, времени суток, дня недели, погоды и близости к центру, а не измеренное количество мест — таких данных не существует в открытом доступе. Каждая отметка «нашёл / не нашёл» делает его чуть точнее».</p>
+    </div>
+
+    <div class="profile-pilot-card">
+      <div class="profile-pilot-ring"></div>
+      <div>
+        <div style="font-family:var(--font-display); font-weight:600; font-size:15px;">Пилот: Садовое кольцо</div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">Расширение покрытия — следующий этап</div>
+      </div>
+    </div>
+
+    <div class="profile-block">
+      <h2>Есть идея или нашёл баг?</h2>
+      <select id="feedback-category" style="width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; border:1px solid var(--hairline); background:var(--surface-raised); color:var(--text-primary); font-size:14px; font-family:var(--font-body); margin-bottom:10px;">
+        <option value="bug">Что-то не работает</option>
+        <option value="idea">Есть идея</option>
+        <option value="other">Другое</option>
+      </select>
+      <textarea id="feedback-message" rows="3" placeholder="Расскажи, что случилось или что улучшить…"
+        style="width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; border:1px solid var(--hairline); background:var(--surface-raised); color:var(--text-primary); font-size:14px; font-family:var(--font-body); margin-bottom:10px; resize:vertical;"></textarea>
+      <button id="feedback-submit-btn" class="fb-btn yes" style="width:100%;">Отправить</button>
+      <div id="feedback-submit-thanks" style="display:none; color:var(--green); font-size:13px; margin-top:10px;">✓ Спасибо, учли!</div>
+    </div>
+
+    <div id="app-version">Индекс доступности парковки · пилот v0.1</div>
+  </section>
+
+</div>
+
+<nav id="tabbar">
+  <button class="tab-btn active" data-screen="map">
+    <svg viewBox="0 0 24 24" fill="none"><circle class="fill" cx="12" cy="10" r="9"/><path d="M12 2C7.6 2 4 5.6 4 10c0 6 8 12 8 12s8-6 8-12c0-4.4-3.6-8-8-8Z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="10" r="2.6" stroke="currentColor" stroke-width="1.6"/></svg>
+    Карта
+  </button>
+  <button class="tab-btn" data-screen="list">
+    <svg viewBox="0 0 24 24" fill="none"><circle class="fill" cx="12" cy="12" r="9"/><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    Зоны
+  </button>
+  <button class="tab-btn" data-screen="profile">
+    <svg viewBox="0 0 24 24" fill="none"><circle class="fill" cx="12" cy="12" r="9"/><circle cx="12" cy="8" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 19c1.2-3.2 4-4.8 6.5-4.8s5.3 1.6 6.5 4.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    Профиль
+  </button>
+</nav>
+
+<div id="refine-panel">
+  <h3>Уточнить геопозицию</h3>
+  <p>Автоматическое определение в Москве часто ошибается из-за плотной застройки. Введите адрес или перетащите маркер на карте на нужную точку.</p>
+  <input id="refine-input" type="text" placeholder="Например: Тверская улица, 7">
+  <div id="refine-results"></div>
+  <button id="refine-close-btn">Готово</button>
+</div>
+
+<div id="sheet-scrim"></div>
+<div id="sheet">
+  <button id="sheet-close" aria-label="Закрыть">✕</button>
+  <button id="fav-btn" aria-label="В избранное">☆</button>
+  <div class="handle"></div>
+  <div id="sheet-header">
+    <div id="gauge-wrap">
+      <svg viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="42" fill="none" stroke="#333A46" stroke-width="8"/>
+        <circle id="gauge-arc" cx="50" cy="50" r="42" fill="none" stroke="#FFB020" stroke-width="8"
+                stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"
+                transform="rotate(-90 50 50)"/>
+      </svg>
+      <div id="gauge-number">—</div>
+    </div>
+    <div id="sheet-meta">
+      <div id="sheet-label">Индекс доступности</div>
+      <p id="sheet-zone-name">—</p>
+      <p id="sheet-zone-sub">—</p>
+      <div id="sheet-extra-meta"></div>
+      <div id="explain-block"></div>
+    </div>
+  </div>
+
+  <div id="hetero-note">⚠ Зона неоднородна — доступность сильно разная в разных её частях. Переключитесь на слой DEMO, чтобы увидеть конкретные парковки.</div>
+
+  <div id="distance-to-user"></div>
+  <div id="action-row">
+    <button class="action-btn" id="route-btn">🧭 Маршрут</button>
+    <button class="action-btn" id="report-btn">⚠ Сообщить о проблеме</button>
+  </div>
+
+  <div id="feedback-block">
+    <p id="feedback-question">Вы сейчас здесь? Нашли место?</p>
+    <div id="feedback-buttons">
+      <button class="fb-btn yes" data-answer="yes">Да, нашёл</button>
+      <button class="fb-btn no" data-answer="no">Нет, занято</button>
+    </div>
+    <div id="feedback-thanks">✓ Спасибо, учли в модели</div>
+  </div>
+
+  <div id="alt-block">
+    <h3>Попробуйте рядом</h3>
+    <div id="alt-list"></div>
+    <div id="alt-empty">Свободных зон поблизости (10 мин пешком) сейчас не нашлось — придётся поискать дальше.</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script>
+// В проде заменить на реальный адрес бэкенда.
+// На реальном сайте фронтенд и бэкенд живут на одном домене Vercel — значит
+// просто /api (без CORS вообще, тот же origin). Локально бэкенд крутится
+// отдельно на localhost:8000, но маршруты у него тоже под /api/... — один
+// и тот же код бэкенда работает и локально, и на проде без развилок.
+const API_BASE = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+  ? "http://localhost:8000/api"
+  : "/api";
+const DEVICE_ID = localStorage.getItem("device_id") || crypto.randomUUID();
+localStorage.setItem("device_id", DEVICE_ID);
+
+// ---------- Профиль: локальная привязка по телефону (без реальной SMS-проверки, см. пояснение в UI) ----------
+async function loadCommunityStats() {
+  const totalEl = document.getElementById('stat-total');
+  const subEl = document.getElementById('stat-breakdown');
+  try {
+    const res = await fetch(`${API_BASE}/community-stats`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const stats = await res.json();
+    totalEl.textContent = stats.total_all_time;
+    subEl.textContent = `+${stats.total_today} сегодня. Спасибо всем, кто отмечает — это общая копилка, не личный счёт.`;
+    const pulseEl = document.getElementById('pulse-number');
+    if (pulseEl) pulseEl.textContent = stats.total_all_time;
+  } catch (e) {
+    totalEl.textContent = '—';
+    subEl.textContent = 'Не удалось загрузить — проверь бэкенд.';
+  }
+}
+
+async function loadTopVerified() {
+  const el = document.getElementById('top-verified-list');
+  try {
+    const res = await fetch(`${API_BASE}/top-verified-today`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data.zones.length) {
+      el.textContent = 'Пока никто не отмечал зоны сегодня — стань первым.';
+      return;
+    }
+    el.innerHTML = data.zones.map(z =>
+      `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--hairline);">
+        <span style="color:var(--text-primary);">${z.name}</span>
+        <span>${z.feedback_count} отметок</span>
+      </div>`
+    ).join('');
+  } catch (e) {
+    el.textContent = 'Не удалось загрузить.';
+  }
+}
+
+// ---------- Форма обратной связи по приложению (не про конкретную зону) ----------
+document.getElementById('feedback-submit-btn').addEventListener('click', async () => {
+  const category = document.getElementById('feedback-category').value;
+  const message = document.getElementById('feedback-message').value.trim();
+  if (!message) return;
+  try {
+    await fetch(`${API_BASE}/app-feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, message, device_id: DEVICE_ID }),
+    });
+    document.getElementById('feedback-message').value = '';
+    document.getElementById('feedback-submit-thanks').style.display = 'block';
+    setTimeout(() => { document.getElementById('feedback-submit-thanks').style.display = 'none'; }, 3000);
+  } catch (e) {
+    alert('Не удалось отправить — проверь бэкенд.');
+  }
+});
+
+// ---------- Дисклеймер / заставка коллективного вклада при первом запуске ----------
+if (!localStorage.getItem("disclaimer_seen")) {
+  document.getElementById("disclaimer-modal").classList.remove("hidden");
+  loadCommunityStats(); // подставит реальное число в пульс-визуализацию
+}
+document.getElementById("disclaimer-ok").addEventListener("click", () => {
+  localStorage.setItem("disclaimer_seen", "1");
+  document.getElementById("disclaimer-modal").classList.add("hidden");
+});
+
+// ---------- Избранное ----------
+function getFavorites() {
+  try { return JSON.parse(localStorage.getItem("favorites") || "[]"); }
+  catch (e) { return []; }
+}
+function isFavorite(zoneId) { return getFavorites().includes(zoneId); }
+function toggleFavorite(zoneId) {
+  const favs = getFavorites();
+  const idx = favs.indexOf(zoneId);
+  if (idx === -1) favs.push(zoneId); else favs.splice(idx, 1);
+  localStorage.setItem("favorites", JSON.stringify(favs));
+  return favs.includes(zoneId);
+}
+
+const GAUGE_CIRCUMFERENCE = 264; // 2 * PI * 42, соответствует radius=42 в SVG
+let latestZones = [];
+
+function colorForIndex(idx) {
+  if (idx >= 66) return "#3DDC84";
+  if (idx >= 33) return "#FFB020";
+  return "#FF5A5F";
+}
+function colorDimForIndex(idx) {
+  if (idx >= 66) return "rgba(61,220,132,0.16)";
+  if (idx >= 33) return "rgba(255,176,32,0.16)";
+  return "rgba(255,90,95,0.16)";
+}
+
+function showError(message) {
+  const el = document.getElementById('error-banner');
+  document.getElementById('error-banner-text').textContent = message;
+  el.style.display = 'block';
+}
+function hideError() {
+  document.getElementById('error-banner').style.display = 'none';
+}
+document.getElementById('error-banner-close').addEventListener('click', hideError);
+
+// ---------- Навигация между экранами ----------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    closeSheet(); // раньше открытая карточка зоны оставалась висеть поверх любого
+                   // экрана, на который переключились — выглядело как "раздел
+                   // парковки переехал в профиль". Теперь закрывается сразу.
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('screen-' + btn.dataset.screen).classList.add('active');
+    if (btn.dataset.screen === 'list') renderList();
+    if (btn.dataset.screen === 'profile') { loadCommunityStats(); loadTopVerified(); }
+  });
+});
+
+// ---------- Переключатель слоёв: Зоны (агрегат, основной) / DEMO (конкретные парковки) ----------
+let currentLayer = 'cluster';
+
+function setLayerVisibility() {
+  if (!map.getLayer('clusters-fill') || !map.getLayer('zones-line')) return; // оба слоя ещё не готовы
+  const showCluster = currentLayer === 'cluster';
+  ['clusters-fill', 'clusters-line'].forEach(id =>
+    map.setLayoutProperty(id, 'visibility', showCluster ? 'visible' : 'none'));
+  ['zones-line-casing', 'zones-line'].forEach(id =>
+    map.setLayoutProperty(id, 'visibility', showCluster ? 'none' : 'visible'));
+  document.getElementById('demo-watermark').style.display = showCluster ? 'none' : 'block';
+  refreshPills();
+}
+
+document.querySelectorAll('.layer-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentLayer = btn.dataset.layer;
+    setLayerVisibility();
+  });
+});
+
+// ---------- Карта: своя PMTiles-карта Москвы, с честным запасным вариантом ----------
+// См. map-tiles/README.md — как получить moscow.pmtiles. Пока файла нет (или он
+// не загрузился), используем OpenFreeMap как временный источник — это НЕ решает
+// задачу независимости, но не даёт приложению сломаться, пока свой файл не готов.
+const OWN_TILES_PATH = 'moscow.pmtiles';
+const FALLBACK_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+
+const pmtilesProtocol = new pmtiles.Protocol();
+maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
+
+async function resolveMapStyle() {
+  let ownTilesAvailable = false;
+  try {
+    const head = await fetch(OWN_TILES_PATH, { method: 'HEAD' });
+    ownTilesAvailable = head.ok;
+  } catch (e) {
+    ownTilesAvailable = false;
+  }
+
+  if (!ownTilesAvailable) {
+    console.warn(`Файл ${OWN_TILES_PATH} не найден рядом с index.html — использую временный OpenFreeMap. См. map-tiles/README.md.`);
+    return FALLBACK_STYLE_URL;
+  }
+
+  if (typeof basemaps === 'undefined') {
+    console.warn('Пакет @protomaps/basemaps не загрузился с CDN — проверь тег <script> в <head>. Использую временный OpenFreeMap.');
+    return FALLBACK_STYLE_URL;
+  }
+
+  // Свой файл на месте и пакет стилей загрузился — строим полностью
+  // самостоятельный стиль. glyphs/sprite пока со сторонней раздачи Protomaps
+  // (GitHub Pages) — тоже не идеальная независимость; финальный шаг —
+  // скачать шрифты/спрайты из basemaps-assets и положить рядом с проектом.
+  return {
+    version: 8,
+    glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
+    sprite: 'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
+    sources: {
+      protomaps: {
+        type: 'vector',
+        url: `pmtiles://${OWN_TILES_PATH}`,
+        attribution: '© OpenStreetMap contributors',
+      },
+    },
+    layers: basemaps.layers('protomaps', basemaps.namedFlavor('light'), { lang: 'ru' }),
+  };
+}
+
+let map; // создаётся после resolveMapStyle(), остальной код обращается к нему как и раньше
+
+resolveMapStyle().then((style) => {
+  let initialCenter = [37.6175, 55.7520]; // Кремль — дефолт для первого запуска
+  let initialZoom = 13.2;
+  try {
+    const saved = JSON.parse(localStorage.getItem('last_location') || 'null');
+    if (saved) { initialCenter = [saved.lon, saved.lat]; initialZoom = 15; }
+  } catch (e) { /* игнорируем битые данные в localStorage */ }
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style,
+    center: initialCenter,
+    zoom: initialZoom,
+    pitch: 0,
+    attributionControl: { compact: true },
+  });
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+  initMapLayers();
+  initGeolocation();
+  loadMetroLayer();
+  loadWeather();
+  loadContext();
+  setInterval(loadWeather, 15 * 60 * 1000);
+});
+
+function initMapLayers() {
+  map.on('load', () => {
+    // Полностью показывать все подписи оказалось перебором — иконки и
+    // названия отдельных заведений (кафе, магазины) перегружали карту.
+    // Убираем именно точки интереса, оставляя названия улиц и крупных
+    // мест — это удерживает баланс между "совсем пусто" и "слишком много".
+    const style = map.getStyle();
+    if (style && style.layers) {
+      style.layers.forEach(layer => {
+        const isPoi =
+          layer.id.toLowerCase().includes('poi') ||
+          (layer['source-layer'] && layer['source-layer'].toLowerCase().includes('poi'));
+        if (layer.type === 'symbol' && isPoi) {
+          map.setLayoutProperty(layer.id, 'visibility', 'none');
+          return;
+        }
+        // Многие подписи показывают одновременно английское и русское
+        // название друг под другом ("Moscow" / "Москва") — предпочитаем
+        // одно русское, если у слоя вообще есть текстовое поле.
+        if (layer.type === 'symbol') {
+          try {
+            const hasTextField = map.getLayoutProperty(layer.id, 'text-field');
+            if (hasTextField) {
+              map.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name:ru'], ['get', 'name']]);
+            }
+          } catch (e) { /* не у всех символьных слоёв есть текст — пропускаем молча */ }
+        }
+      });
+    }
+    loadZones();
+    loadClusters();
+    setInterval(() => { loadZones(); loadClusters(); }, 5 * 60 * 1000);
+  });
+}
+
+let currentZoneId = null;
+let currentFeedbackLayer = 'demo';
+
+// ---------- Геолокация + "уточнить геопозицию" (как у Яндекса) ----------
+// Автоматическая геолокация в Москве часто врёт из-за плотной застройки
+// (GPS-сигнал переотражается от зданий). Решение: показать автоматическую
+// точку как ЧЕРНОВИК, сразу предложить её поправить — перетаскиванием
+// маркера или поиском адреса — а не выдавать неточную точку за истину.
+let userLocationMarker = null;
+
+function makeUserLocationEl() {
+  const el = document.createElement('div');
+  el.style.cssText = `
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #3B82F6; border: 3px solid #fff;
+    box-shadow: 0 0 0 6px rgba(59,130,246,0.25), 0 2px 6px rgba(0,0,0,.4);
+  `;
+  return el;
+}
+
+// ---------- Метро на карте — для ориентации без чтения названий улиц ----------
+// ---------- Погода — показываем в открытую, не только внутри формулы ----------
+let mskClockOffsetMs = null; // разница между временем сервера (МСК) и часами браузера
+
+function formatMskClock(date) {
+  const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const weekdays = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  const mm = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${weekdays[date.getUTCDay()]}, ${date.getUTCDate()} ${months[date.getUTCMonth()]} · ${hh}:${mm}`;
+}
+
+function tickStatusPillClock() {
+  if (mskClockOffsetMs === null) return;
+  const nowMsk = new Date(Date.now() + mskClockOffsetMs);
+  const el = document.getElementById('status-pill-time');
+  if (el) el.textContent = formatMskClock(nowMsk);
+}
+
+async function loadContext() {
+  try {
+    const res = await fetch(`${API_BASE}/context`);
+    if (!res.ok) return;
+    const ctx = await res.json();
+    // datetime_msk приходит наивным (без зоны) временем по Москве — сразу
+    // читаем его поля как есть, не через часовой пояс браузера (он может
+    // быть каким угодно, если человек в другом городе или с VPN).
+    const serverMsk = new Date(ctx.datetime_msk + 'Z'); // трактуем как UTC-числа, это и есть часы/минуты МСК
+    mskClockOffsetMs = serverMsk.getTime() - Date.now();
+
+    // Дата/день недели/время — универсально полезны и понятны всем, в
+    // отличие от "каникулы", которые касаются не каждого пользователя.
+    document.querySelector('#status-pill span:last-child').innerHTML =
+      `Садовое кольцо · <strong id="zone-count">${latestZones.length || '—'}</strong> зон · <span id="status-pill-time"></span>`;
+    tickStatusPillClock();
+    setInterval(tickStatusPillClock, 1000);
+  } catch (e) {
+    console.warn('Контекст дня не загрузился (не критично):', e);
+  }
+}
+
+async function loadWeather() {
+  try {
+    const res = await fetch(`${API_BASE}/weather-now`);
+    if (!res.ok) return;
+    const w = await res.json();
+    if (w.temp_c === null || w.temp_c === undefined) return;
+    const pill = document.getElementById('weather-pill');
+    const rain = w.precip_mm > 0 ? ' · 🌧' : '';
+    pill.textContent = `${Math.round(w.temp_c)}°C${rain}`;
+    pill.style.display = 'block';
+  } catch (e) {
+    console.warn('Погода не загрузилась (не критично):', e);
+  }
+}
+
+async function loadMetroLayer() {
+  try {
+    const res = await fetch(`${API_BASE}/metro-stations`);
+    if (!res.ok) return; // не критично — просто не будет слоя метро
+    const geojson = await res.json();
+    if (!geojson.features || !geojson.features.length) return;
+
+    map.addSource('metro', { type: 'geojson', data: geojson });
+    map.addLayer({
+      id: 'metro-dot', type: 'circle', source: 'metro',
+      paint: {
+        'circle-radius': 4,
+        'circle-color': '#8FE3FF',
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#14171C',
+      },
+    });
+  } catch (e) {
+    console.warn('Слой метро не загрузился (не критично):', e);
+  }
+}
+
+function initGeolocation() {
+  const locateBtn = document.getElementById('locate-btn');
+
+  // Восстанавливаем маркер на позиции с прошлого раза, если она есть.
+  try {
+    const saved = JSON.parse(localStorage.getItem('last_location') || 'null');
+    if (saved) setUserLocation(saved.lat, saved.lon);
+  } catch (e) { /* игнорируем битые данные */ }
+
+  locateBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      showError('Браузер не поддерживает геолокацию.');
+      return;
+    }
+    locateBtn.classList.add('active');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setUserLocation(latitude, longitude);
+        map.flyTo({ center: [longitude, latitude], zoom: 16 });
+        openNearestZoneSheet(latitude, longitude);
+      },
+      (err) => {
+        locateBtn.classList.remove('active');
+        showError('Не удалось определить местоположение: ' + err.message + '. Попробуй найти адрес вручную.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+
+  document.getElementById('search-btn').addEventListener('click', () => {
+    document.getElementById('refine-panel').classList.add('open');
+    document.getElementById('refine-input').focus();
+  });
+  document.getElementById('refine-close-btn').addEventListener('click', () => {
+    document.getElementById('refine-panel').classList.remove('open');
+  });
+
+  // Поиск адреса — единичные запросы по действию пользователя (не массовая
+  // автоматизация), с задержкой, чтобы не слать запрос на каждую букву.
+  let searchTimeout = null;
+  document.getElementById('refine-input').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    const query = e.target.value.trim();
+    if (query.length < 3) {
+      document.getElementById('refine-results').innerHTML = '';
+      return;
+    }
+    searchTimeout = setTimeout(() => searchAddress(query), 600);
+  });
+}
+
+async function searchAddress(query) {
+  const resultsEl = document.getElementById('refine-results');
+  resultsEl.innerHTML = '<div class="refine-result" style="color:var(--text-muted)">Ищу…</div>';
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Москва')}&limit=5&viewbox=37.35,55.95,37.90,55.55&bounded=1`;
+    const res = await fetch(url);
+    const results = await res.json();
+    resultsEl.innerHTML = '';
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="refine-result" style="color:var(--text-muted)">Ничего не нашлось</div>';
+      return;
+    }
+    results.forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'refine-result';
+      el.textContent = r.display_name;
+      el.addEventListener('click', () => {
+        const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+        setUserLocation(lat, lon);
+        map.flyTo({ center: [lon, lat], zoom: 16.5 });
+        document.getElementById('refine-panel').classList.remove('open');
+        openNearestZoneSheet(lat, lon);
+      });
+      resultsEl.appendChild(el);
+    });
+  } catch (e) {
+    resultsEl.innerHTML = '<div class="refine-result" style="color:var(--red)">Не удалось найти адрес</div>';
+  }
+}
+
+function openNearestZoneSheet(lat, lon) {
+  // Прямой ответ на "есть ли место рядом с этим адресом" — не нужно самому
+  // разглядывать карту и тыкать в ближайшую точку, приложение делает это само.
+  if (!latestZones || !latestZones.length) return;
+  let nearest = null, nearestDist = Infinity;
+  latestZones.forEach(z => {
+    const d = haversineMeters(lat, lon, z.lat, z.lon);
+    if (d < nearestDist) { nearestDist = d; nearest = z; }
+  });
+  if (nearest && nearestDist < 600) {
+    setTimeout(() => openSheet(nearest, 'demo'), 600); // после анимации flyTo
+  }
+}
+
+function setUserLocation(lat, lon) {
+  document.getElementById('locate-btn').classList.add('active');
+  if (userLocationMarker) {
+    userLocationMarker.setLngLat([lon, lat]);
+  } else {
+    userLocationMarker = new maplibregl.Marker({ element: makeUserLocationEl(), draggable: true })
+      .setLngLat([lon, lat])
+      .addTo(map);
+    // Перетаскивание маркера — второй способ уточнить позицию вручную,
+    // без поиска адреса, прямо на глаз по карте.
+    userLocationMarker.on('dragend', () => {
+      const { lat, lng } = userLocationMarker.getLngLat();
+      localStorage.setItem('last_location', JSON.stringify({ lat, lon: lng }));
+    });
+  }
+  // Запоминаем позицию — при следующем запуске карта откроется сразу тут,
+  // а не всегда с Кремля, если человек уже пользовался приложением.
+  localStorage.setItem('last_location', JSON.stringify({ lat, lon }));
+}
+
+function setGauge(idx) {
+  const arc = document.getElementById('gauge-arc');
+  const offset = GAUGE_CIRCUMFERENCE * (1 - idx / 100);
+  arc.style.stroke = colorForIndex(idx);
+  requestAnimationFrame(() => {
+    arc.style.transition = 'stroke-dashoffset .6s cubic-bezier(.32,.72,0,1), stroke .3s ease';
+    arc.style.strokeDashoffset = offset;
+  });
+}
+
+function renderExplainChips(explain) {
+  const el = document.getElementById('explain-block');
+  if (!explain || !explain.length) { el.innerHTML = ''; return; }
+  el.innerHTML = explain.map(f =>
+    `<span class="explain-chip ${f.direction}">${f.direction === 'down' ? '↓' : '↑'} ${f.label}</span>`
+  ).join('');
+}
+
+function renderDistanceToUser(lat, lon) {
+  const el = document.getElementById('distance-to-user');
+  if (!userLocationMarker) { el.textContent = ''; return; }
+  const { lat: uLat, lng: uLon } = userLocationMarker.getLngLat();
+  const distM = haversineMeters(uLat, uLon, lat, lon);
+  const walkMin = Math.max(1, Math.round((distM * 1.3) / 75));
+  el.textContent = `📍 ${Math.round(distM)} м от тебя · ≈${walkMin} мин пешком`;
+}
+
+let currentSheetLatLon = null;
+
+document.getElementById('route-btn').addEventListener('click', () => {
+  if (!currentSheetLatLon) return;
+  const [lat, lon] = currentSheetLatLon;
+  // Формат ссылки Яндекс.Карт для построения маршрута — если у тебя не
+  // откроется маршрут как ожидается, дай знать, поправлю на точный формат.
+  window.open(`https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`, '_blank');
+});
+
+document.getElementById('report-btn').addEventListener('click', async () => {
+  if (!currentZoneId) return;
+  const reason = prompt('Что не так с этой зоной? (например: закрыта, снесена, неверное расположение)');
+  if (!reason) return;
+  try {
+    await fetch(`${API_BASE}/report-issue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zone_id: currentZoneId, reason, device_id: DEVICE_ID }),
+    });
+    alert('Спасибо, разберёмся.');
+  } catch (e) {
+    alert('Не удалось отправить — проверь бэкенд.');
+  }
+});
+
+function renderTrendIcon(trend) {
+  if (trend === 'up') return '<span class="trend-icon trend-up">↑ доступность растёт</span>';
+  if (trend === 'down') return '<span class="trend-icon trend-down">↓ доступность падает</span>';
+  return '<span class="trend-icon trend-flat">→ без изменений</span>';
+}
+
+function renderExtraMeta(props) {
+  const parts = [renderTrendIcon(props.trend)];
+  if (props.feedback_count > 0) {
+    parts.push(`<span>на основе ${props.feedback_count} отметок</span>`);
+  } else {
+    parts.push('<span>пока без отметок — чистая оценка</span>');
+  }
+  const disabled = props.car_capacity_disabled ?? props.total_capacity_disabled;
+  if (disabled) parts.push(`<span>♿ ${disabled} мест</span>`);
+  document.getElementById('sheet-extra-meta').innerHTML = parts.join(' · ');
+}
+
+function refreshFavButton() {
+  const btn = document.getElementById('fav-btn');
+  const fav = currentZoneId && isFavorite(currentZoneId);
+  btn.textContent = fav ? '★' : '☆';
+  btn.classList.toggle('active', !!fav);
+}
+
+document.getElementById('fav-btn').addEventListener('click', () => {
+  if (!currentZoneId) return;
+  toggleFavorite(currentZoneId);
+  refreshFavButton();
+});
+
+function openSheet(props, kind = 'demo') {
+  currentFeedbackLayer = kind;
+  document.getElementById('hetero-note').style.display = 'none';
+  document.getElementById('alt-block').style.display = 'none';
+
+  if (kind === 'cluster') {
+    currentZoneId = props.representative_zone_id || null;
+    document.getElementById('sheet-zone-name').textContent = `Зона ${props.zone_label}`;
+    const freeText = props.potentially_free_min === props.potentially_free_max
+      ? `≈${props.potentially_free_min} свободно`
+      : `≈${props.potentially_free_min}–${props.potentially_free_max} свободно`;
+    document.getElementById('sheet-zone-sub').textContent =
+      `${props.segment_count} парковок · всего ${props.total_capacity} мест · ${freeText}`;
+    setGauge(props.index_mean);
+    document.getElementById('gauge-number').textContent = `${props.index_min}–${props.index_max}%`;
+    document.getElementById('gauge-number').classList.add('range');
+    if (props.is_heterogeneous) {
+      document.getElementById('hetero-note').style.display = 'block';
+    }
+  } else {
+    currentZoneId = props.id;
+    document.getElementById('sheet-zone-name').textContent = props.name;
+    const tariffText = props.tariff_weekday_car_rub > 0
+      ? `${props.tariff_weekday_car_rub} ₽/ч по будням`
+      : 'Бесплатно сейчас';
+    document.getElementById('sheet-zone-sub').textContent =
+      `${tariffText} · всего ${props.car_capacity} мест · ≈${props.potentially_free ?? '—'} свободно`;
+    setGauge(props.index_value);
+    document.getElementById('gauge-number').textContent = props.index_value + '%';
+    document.getElementById('gauge-number').classList.remove('range');
+  }
+
+  renderExtraMeta(props);
+  renderExplainChips(props.explain);
+  refreshFavButton();
+
+  const lat = kind === 'cluster' ? props.centroid_lat : props.lat;
+  const lon = kind === 'cluster' ? props.centroid_lon : props.lon;
+  currentSheetLatLon = [lat, lon];
+  renderDistanceToUser(lat, lon);
+
+  document.getElementById('feedback-buttons').style.display = 'flex';
+  document.getElementById('feedback-thanks').style.display = 'none';
+  document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('chosen'));
+
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('sheet-scrim').classList.add('open');
+}
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('sheet-scrim').classList.remove('open');
+}
+document.getElementById('sheet-close').addEventListener('click', closeSheet);
+document.getElementById('sheet-scrim').addEventListener('click', closeSheet);
+
+// ---------- "Не нашли место?" -> подсказка альтернативы без геолокации ----------
+// Зона, в которой пользователь только что отметил "не нашёл", уже точно
+// известна (он сам её открыл) — GPS вообще не нужен, это и решает проблему
+// с ненадёжной геолокацией в Москве, о которой шла речь.
+async function showAlternatives(originZoneId) {
+  const block = document.getElementById('alt-block');
+  const list = document.getElementById('alt-list');
+  const empty = document.getElementById('alt-empty');
+  list.innerHTML = '';
+  empty.style.display = 'none';
+  block.style.display = 'block';
+
+  try {
+    const res = await fetch(`${API_BASE}/alternatives?zone_id=${encodeURIComponent(originZoneId)}`);
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}: ${bodyText.slice(0, 200)}`);
+    }
+    const data = await res.json();
+
+    if (!data.alternatives || data.alternatives.length === 0) {
+      empty.style.display = 'block';
+      return;
+    }
+
+    data.alternatives.forEach(alt => {
+      const card = document.createElement('div');
+      card.className = 'alt-card';
+      card.innerHTML = `
+        <div>
+          <div class="alt-name">${alt.name}</div>
+          <div class="alt-meta">≈ ${alt.walk_minutes} мин пешком</div>
+        </div>
+        <div class="alt-badge" style="background:${colorDimForIndex(alt.index_value)}; color:${colorForIndex(alt.index_value)}">${alt.index_value}%</div>
+      `;
+      card.addEventListener('click', () => {
+        map.flyTo({ center: [alt.lon, alt.lat], zoom: 16.5 });
+        openSheet({
+          id: alt.zone_id, name: alt.name, index_value: alt.index_value,
+          tariff_weekday_car_rub: alt.tariff_weekday_car_rub, car_capacity: alt.car_capacity,
+          potentially_free: alt.potentially_free, lat: alt.lat, lon: alt.lon,
+          explain: [], feedback_count: 0, trend: 'flat',
+        }, 'demo');
+      });
+      list.appendChild(card);
+    });
+  } catch (e) {
+    console.error('Не удалось загрузить альтернативы', e);
+    empty.textContent = 'Не удалось загрузить альтернативы: ' + e.message;
+    empty.style.display = 'block';
+  }
+}
+
+document.querySelectorAll('.fb-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (!currentZoneId) return;
+    btn.classList.add('chosen');
+    document.getElementById('feedback-buttons').style.display = 'none';
+    document.getElementById('feedback-thanks').style.display = 'flex';
+    const foundSpot = btn.dataset.answer === 'yes';
+    try {
+      await fetch(`${API_BASE}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zone_id: currentZoneId, found_spot: foundSpot,
+          device_id: DEVICE_ID, layer: currentFeedbackLayer,
+        }),
+      });
+    } catch (e) { console.error('Не удалось отправить фидбек', e); }
+
+    if (!foundSpot) {
+      showAlternatives(currentZoneId); // не закрываем sheet — сразу подсказка
+    } else {
+      setTimeout(closeSheet, 1100);
+    }
+  });
+});
+
+function lineMidpoint(geometry) {
+  // Для MultiLineString берём среднюю точку самой длинной линии — обычно
+  // это основной отрезок улицы, а не короткий боковой отросток.
+  let lines = geometry.type === 'MultiLineString' ? geometry.coordinates : [geometry.coordinates];
+  let longest = lines.reduce((a, b) => (a.length >= b.length ? a : b));
+  return longest[Math.floor(longest.length / 2)]; // [lon, lat]
+}
+
+const pillMarkers = new Map(); // zoneId -> maplibregl.Marker, живут пока их зона видна
+
+function pillColor(idx) {
+  if (idx >= 66) return { bg: 'rgba(61,220,132,0.94)', text: '#0B1410' };
+  if (idx >= 33) return { bg: 'rgba(255,176,32,0.94)', text: '#1A1206' };
+  return { bg: 'rgba(255,90,95,0.94)', text: '#1A0B0C' };
+}
+
+function makePillEl(labelText, colorIdx, onClick) {
+  const colors = pillColor(colorIdx);
+  const el = document.createElement('div');
+  el.textContent = labelText;
+  el.style.cssText = `
+    background:${colors.bg}; color:${colors.text};
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:12px;
+    font-variant-numeric:tabular-nums;
+    padding:3px 9px; border-radius:999px; white-space:nowrap;
+    box-shadow:0 2px 6px rgba(0,0,0,.35); cursor:pointer;
+    border:1.5px solid rgba(20,23,28,0.55);
+  `;
+  el.addEventListener('click', onClick);
+  return el;
+}
+
+// Плашки рисуем только для зон в видимой области и только при достаточном
+// приближении — иначе сотни DOM-элементов разом убьют производительность.
+const PILL_MIN_ZOOM = 15.5;
+
+function refreshPills() {
+  pillMarkers.forEach(m => m.remove());
+  pillMarkers.clear();
+
+  if (map.getZoom() < PILL_MIN_ZOOM) return;
+  const bounds = map.getBounds();
+
+  if (currentLayer === 'demo') {
+    if (!latestGeojson) return;
+    latestGeojson.features.forEach(feature => {
+      const [lon, lat] = lineMidpoint(feature.geometry);
+      if (!bounds.contains([lon, lat])) return;
+      const props = feature.properties;
+      const el = makePillEl(props.index_value + '%', props.index_value, () => openSheet(props, 'demo'));
+      pillMarkers.set('demo-' + props.id, new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map));
+    });
+  } else {
+    if (!latestClusterGeojson) return;
+    latestClusterGeojson.features.forEach(feature => {
+      const props = feature.properties;
+      const lon = props.centroid_lon, lat = props.centroid_lat;
+      if (!bounds.contains([lon, lat])) return;
+      const label = props.index_min === props.index_max
+        ? `${props.index_min}%`
+        : `${props.index_min}–${props.index_max}%`;
+      const el = makePillEl(label, props.index_mean, () => openSheet(props, 'cluster'));
+      pillMarkers.set('cluster-' + props.zone_label, new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map));
+    });
+  }
+}
+
+let latestGeojson = null;
+let latestClusterGeojson = null;
+
+async function loadZones() {
+  let geojson;
+  try {
+    const res = await fetch(`${API_BASE}/zones`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    geojson = await res.json();
+  } catch (e) {
+    console.error('Не удалось загрузить зоны:', e);
+    showError('Не вижу бэкенд на ' + API_BASE + ' — проверь, что uvicorn запущен, и что CORS включён в main.py.');
+    document.getElementById('boot-state').classList.add('hidden');
+    return;
+  }
+
+  latestGeojson = geojson;
+  hideError();
+  latestZones = geojson.features.map(f => f.properties);
+  document.getElementById('zone-count').textContent = latestZones.length;
+
+  if (map.getSource('zones')) {
+    map.getSource('zones').setData(geojson);
+  } else {
+    map.addSource('zones', { type: 'geojson', data: geojson });
+
+    // Тёмная "подложка" под линией — делает цветную линию чётче на карте,
+    // тот же приём, что в референсе Яндекса (линия с лёгкой обводкой).
+    map.addLayer({
+      id: 'zones-line-casing', type: 'line', source: 'zones',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#14171C', 'line-width': 7, 'line-opacity': 0.6 },
+    });
+    map.addLayer({
+      id: 'zones-line', type: 'line', source: 'zones',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-width': 4,
+        'line-color': ['step', ['get', 'index_value'], '#FF5A5F', 33, '#FFB020', 66, '#3DDC84'],
+      },
+    });
+
+    map.on('click', 'zones-line', (e) => openSheet(e.features[0].properties, 'demo'));
+    map.on('mouseenter', 'zones-line', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'zones-line', () => map.getCanvas().style.cursor = '');
+    map.on('moveend', refreshPills);
+    map.on('zoomend', refreshPills);
+    setLayerVisibility(); // применить текущий выбор слоя — на случай, если кластеры создались раньше
+  }
+
+  refreshPills();
+  document.getElementById('boot-state').classList.add('hidden');
+}
+
+async function loadClusters() {
+  let geojson;
+  try {
+    const res = await fetch(`${API_BASE}/zone-clusters`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    geojson = await res.json();
+  } catch (e) {
+    console.error('Не удалось загрузить агрегированные зоны:', e);
+    return; // demo-слой уже показывает ошибку в баннере, дублировать не нужно
+  }
+
+  latestClusterGeojson = geojson;
+
+  if (map.getSource('clusters')) {
+    map.getSource('clusters').setData(geojson);
+  } else {
+    map.addSource('clusters', { type: 'geojson', data: geojson });
+
+    // Пастельная заливка в тон границе — периметр толще и насыщеннее, заливка
+    // прозрачная, чтобы подложка карты просвечивала (как просил — не сплошной блок).
+    map.addLayer({
+      id: 'clusters-fill', type: 'fill', source: 'clusters',
+      paint: {
+        'fill-color': ['step', ['get', 'index_mean'], '#FF5A5F', 33, '#FFB020', 66, '#3DDC84'],
+        'fill-opacity': 0.16,
+      },
+    });
+    map.addLayer({
+      id: 'clusters-line', type: 'line', source: 'clusters',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['step', ['get', 'index_mean'], '#FF5A5F', 33, '#FFB020', 66, '#3DDC84'],
+        'line-width': 3,
+      },
+    });
+
+    map.on('click', 'clusters-fill', (e) => openSheet(e.features[0].properties, 'cluster'));
+    map.on('mouseenter', 'clusters-fill', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'clusters-fill', () => map.getCanvas().style.cursor = '');
+
+    setLayerVisibility(); // применить текущий выбор слоя к только что созданным слоям
+  }
+
+  refreshPills();
+}
+
+// ---------- Список зон ----------
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+let currentListFilter = 'all';
+
+document.querySelectorAll('.filter-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    if (chip.dataset.filter === 'nearest' && !userLocationMarker) {
+      showError('Сначала определи местоположение (значок на карте), чтобы отсортировать по близости.');
+      return;
+    }
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    currentListFilter = chip.dataset.filter;
+    renderList();
+  });
+});
+
+function renderList() {
+  const container = document.getElementById('list-container');
+  container.innerHTML = '';
+  let items = [...latestZones];
+
+  if (currentListFilter === 'favorites') {
+    const favs = getFavorites();
+    items = items.filter(z => favs.includes(z.id));
+  } else if (currentListFilter === 'free') {
+    items = items.filter(z => z.tariff_weekday_car_rub === 0);
+  }
+
+  if (currentListFilter === 'nearest' && userLocationMarker) {
+    const { lat: uLat, lng: uLon } = userLocationMarker.getLngLat();
+    items.sort((a, b) =>
+      haversineMeters(uLat, uLon, a.lat, a.lon) - haversineMeters(uLat, uLon, b.lat, b.lon));
+  } else if (currentListFilter === 'reliable') {
+    items.sort((a, b) => (b.feedback_count || 0) - (a.feedback_count || 0));
+  } else {
+    items.sort((a, b) => a.index_value - b.index_value);
+  }
+
+  if (!items.length) {
+    container.innerHTML = '<div style="padding:20px; color:var(--text-muted); font-size:13px;">Ничего не нашлось по этому фильтру.</div>';
+    return;
+  }
+
+  items.forEach(z => {
+    const card = document.createElement('div');
+    card.className = 'zone-card';
+    const favMark = isFavorite(z.id) ? '★ ' : '';
+    card.innerHTML = `
+      <div class="zone-badge" style="background:${colorDimForIndex(z.index_value)}; color:${colorForIndex(z.index_value)}">${z.index_value}%</div>
+      <div class="zone-info">
+        <div class="name">${favMark}${z.name}</div>
+        <div class="sub">${z.tariff_weekday_car_rub > 0 ? z.tariff_weekday_car_rub + ' ₽/ч' : 'бесплатно'} · ${z.car_capacity} мест${z.feedback_count ? ' · ' + z.feedback_count + ' отметок' : ''}</div>
+      </div>`;
+    card.addEventListener('click', () => openSheet(z));
+    container.appendChild(card);
+  });
+}
+
+const sheetObserver = new MutationObserver(() => {
+  const open = document.getElementById('sheet').classList.contains('open');
+  document.getElementById('legend').classList.toggle('hidden', open);
+});
+sheetObserver.observe(document.getElementById('sheet'), { attributes: true, attributeFilter: ['class'] });
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [[[37.825735, 55.757824], [37.826719, 55.757689]]]
+      },
+      "properties": {
+        "datasetId": 623,
+        "rowId": null,
+        "attributes": {
+          "ID": 59895,
+          "ParkingName": "Парковка №4046 (157)",
+          "ParkingZoneNumber": "4046",
+          "AdmArea": "Восточный административный округ",
+          "District": "район Новогиреево",
+          "Address": "Напольный проезд, дом 10",
+          "CarCapacity": 12,
+          "CarCapacityDisabled": 0,
+          "Tariffs": [
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "праздничные дни", "TimeRange": "круглосуточно", "HourPrice": 0, "VehicleTypeForThisTariff": "Мотоцикл", "global_id": 14955577},
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "праздничные дни", "TimeRange": "круглосуточно", "HourPrice": 0, "VehicleTypeForThisTariff": "Легковой автомобиль", "global_id": 14955578},
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "выходные дни", "TimeRange": "круглосуточно", "HourPrice": 0, "VehicleTypeForThisTariff": "Легковой автомобиль", "global_id": 14955581},
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "будни", "TimeRange": "круглосуточно", "HourPrice": 40, "VehicleTypeForThisTariff": "Легковой автомобиль", "global_id": 14955584},
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "будни", "TimeRange": "круглосуточно", "HourPrice": 40, "VehicleTypeForThisTariff": "Грузовой автомобиль", "global_id": 14955585}
+          ],
+          "global_id": 2755298624
+        }
+      }
+    },
+    {
+      "geometry": {
+        "type": "MultiLineString",
+        "coordinates": [[[37.590939541, 55.695437261], [37.591567899, 55.695269112], [37.591874188, 55.695180486], [37.591992721, 55.695128218]]]
+      },
+      "properties": {
+        "datasetId": 623,
+        "rowId": null,
+        "attributes": {
+          "ID": 60104,
+          "ParkingName": "Парковка №4034 (45)",
+          "ParkingZoneNumber": "4034",
+          "AdmArea": "Юго-Западный административный округ",
+          "District": "Академический район",
+          "Address": "улица Грузинский Вал, дом 14",
+          "CarCapacity": 18,
+          "CarCapacityDisabled": 2,
+          "Tariffs": [
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "выходные дни", "TimeRange": "круглосуточно", "HourPrice": 0, "VehicleTypeForThisTariff": "Легковой автомобиль", "global_id": 14955590},
+            {"is_deleted": 0, "TariffType": "фиксированный тариф", "TariffPeriod": "будни", "TimeRange": "круглосуточно", "HourPrice": 40, "VehicleTypeForThisTariff": "Легковой автомобиль", "global_id": 14955593}
+          ],
+          "global_id": 2755298661
+        }
+      }
+    }
+  ]
+}
