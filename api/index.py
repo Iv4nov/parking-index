@@ -17,7 +17,10 @@
 import json
 import math
 import os
+import sys
 from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
 from fastapi import FastAPI, HTTPException
