@@ -666,6 +666,11 @@
     #sheet, #legend, #boot-state { transition: none; }
     #status-pill .dot, #boot-state .ring { animation: none; }
   }
+@media (max-width: 480px) {
+  #weather-pill {
+    top: calc(max(16px, env(safe-area-inset-top)) + 46px);
+  }
+}
 </style>
 </head>
 <body>
