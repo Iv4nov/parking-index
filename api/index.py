@@ -26,7 +26,7 @@ import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 
 from lib.index_calc import ZoneFeatures, compute_availability_index, compute_proximity_exp, compute_factor_breakdown
@@ -349,7 +349,6 @@ def get_trend_baseline(session: Session) -> dict[str, int]:
             baseline[row.zone_id] = row.index_value
     return baseline
 
-
 def compute_all_indices(session: Session) -> list[dict]:
     """Общее ядро для /zones и /zone-clusters — считает живой индекс по всем
     зонам один раз, дальше каждый эндпоинт по-своему группирует результат.
@@ -361,6 +360,21 @@ def compute_all_indices(session: Session) -> list[dict]:
     is_school_holiday = get_is_school_holiday()
     feedback_stats = get_feedback_stats(session)
     trend_baseline = get_trend_baseline(session)
+
+    # Снапшоты (нужны только для тренда) пишем не чаще раза в SNAPSHOT_THROTTLE,
+    # а не на каждый запрос — 1752 отдельные INSERT на каждый заход страницы
+    # легко выбивают serverless-функцию за лимит в 10с на Hobby-плане Vercel.
+    # Для тренда точность "раз в несколько минут" более чем достаточна.
+    SNAPSHOT_THROTTLE = timedelta(minutes=3)
+    last_snapshot_at = session.scalar(select(func.max(IndexSnapshot.ts)))
+    now_utc = datetime.now(timezone.utc)
+    if last_snapshot_at is not None and last_snapshot_at.tzinfo is None:
+        now_cmp = now_utc.replace(tzinfo=None)
+    else:
+        now_cmp = now_utc
+    should_write_snapshots = (
+        last_snapshot_at is None or (now_cmp - last_snapshot_at) > SNAPSHOT_THROTTLE
+    )
 
     zones = session.scalars(select(Zone)).all()
     results = []
@@ -376,17 +390,19 @@ def compute_all_indices(session: Session) -> list[dict]:
 
         yes, no = feedback_stats.get(z.id, (0, 0))
 
-        session.add(IndexSnapshot(
-            zone_id=z.id, index_value=idx,
-            weather_penalty=live_features.weather_penalty,
-            event_nearby=bool(live_features.event_nearby),
-            model_version="sigmoid_v2_blended",
-        ))
+        if should_write_snapshots:
+            session.add(IndexSnapshot(
+                zone_id=z.id, index_value=idx,
+                weather_penalty=live_features.weather_penalty,
+                event_nearby=bool(live_features.event_nearby),
+                model_version="sigmoid_v2_blended",
+            ))
         results.append({
             "zone": z, "index": idx, "trend": trend, "feedback_count": yes + no,
             "explain": explain_top_factors(live_features),
         })
-    session.commit()
+    if should_write_snapshots:
+        session.commit()
     return results
 
 
