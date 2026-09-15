@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, select, func
@@ -104,7 +104,34 @@ def compute_weather_penalty(precip_mm: float, temp_c: float) -> float:
     return min(penalty, 1.0)
 
 
-def get_weather_penalty() -> float:
+def get_weather_penalty(at_msk: datetime | None = None) -> float:
+    # at_msk задан -> режим прогноза: берём почасовой прогноз Open-Meteo (до 16
+    # дней вперёд, без авторизации) и ищем ближайший к нужному часу слот, а не
+    # текущую погоду. Кэш живой погоды тут не участвует — прогнозы на разное
+    # время не должны его портить.
+    if at_msk is not None:
+        try:
+            resp = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": MOSCOW_CENTER_LAT, "longitude": MOSCOW_CENTER_LON,
+                    "hourly": "temperature_2m,precipitation", "timezone": "Europe/Moscow",
+                    "forecast_days": 16,
+                },
+                timeout=5,
+            )
+            resp.raise_for_status()
+            hourly = resp.json()["hourly"]
+            target = at_msk.strftime("%Y-%m-%dT%H:00")
+            if target in hourly["time"]:
+                i = hourly["time"].index(target)
+            else:
+                i = 0
+            return compute_weather_penalty(hourly["precipitation"][i], hourly["temperature_2m"][i])
+        except Exception as e:
+            print(f"[WARN] Не удалось получить прогноз погоды с Open-Meteo: {e}")
+            return 0.0
+
     now = datetime.now(timezone.utc)
     if _weather_cache["ts"] and now - _weather_cache["ts"] < WEATHER_CACHE_TTL:
         return _weather_cache["penalty"]
@@ -135,9 +162,9 @@ def get_weather_penalty() -> float:
 _calendar_cache = {"date": None, "is_day_off": None}
 
 
-def get_is_day_off() -> bool:
-    today = datetime.now(MOSCOW_TZ).date()
-    if _calendar_cache["date"] == today and _calendar_cache["is_day_off"] is not None:
+def get_is_day_off(target_date=None) -> bool:
+    today = target_date or datetime.now(MOSCOW_TZ).date()
+    if target_date is None and _calendar_cache["date"] == today and _calendar_cache["is_day_off"] is not None:
         return _calendar_cache["is_day_off"]
     try:
         resp = requests.get(f"https://isdayoff.ru/{today:%Y%m%d}", timeout=5)
@@ -146,8 +173,9 @@ def get_is_day_off() -> bool:
     except Exception as e:
         print(f"[WARN] Не удалось получить производственный календарь с isdayoff.ru: {e}")
         is_day_off = today.weekday() >= 5
-    _calendar_cache["date"] = today
-    _calendar_cache["is_day_off"] = is_day_off
+    if target_date is None:
+        _calendar_cache["date"] = today
+        _calendar_cache["is_day_off"] = is_day_off
     return is_day_off
 
 
@@ -171,9 +199,9 @@ def compute_solar_altitude_deg(lat_deg: float, lon_deg: float, dt_utc: datetime)
     return math.degrees(alt_rad)
 
 
-def get_is_dark() -> bool:
-    now_utc = datetime.now(timezone.utc)
-    return compute_solar_altitude_deg(MOSCOW_CENTER_LAT, MOSCOW_CENTER_LON, now_utc) < -6
+def get_is_dark(at_utc: datetime | None = None) -> bool:
+    at_utc = at_utc or datetime.now(timezone.utc)
+    return compute_solar_altitude_deg(MOSCOW_CENTER_LAT, MOSCOW_CENTER_LON, at_utc) < -6
 
 
 # ---------- Школьные каникулы Москвы (см. пояснение в исходном файле этапа 3) ----------
@@ -185,8 +213,8 @@ SCHOOL_HOLIDAYS_2025_2026 = [
 ]
 
 
-def get_is_school_holiday() -> bool:
-    today = datetime.now(MOSCOW_TZ).date()
+def get_is_school_holiday(target_date=None) -> bool:
+    today = target_date or datetime.now(MOSCOW_TZ).date()
     return any(start <= today <= end for start, end in SCHOOL_HOLIDAYS_2025_2026)
 
 
@@ -233,9 +261,9 @@ def explain_top_factors(f: ZoneFeatures, limit: int = 3) -> list[dict]:
     return result
 
 
-def get_live_features(zone: Zone, weather_penalty: float, is_day_off: bool, is_dark: bool, is_school_holiday: bool) -> ZoneFeatures:
-    now_msk = datetime.now(MOSCOW_TZ)
-    hour_float = now_msk.hour + now_msk.minute / 60
+def get_live_features(zone: Zone, weather_penalty: float, is_day_off: bool, is_dark: bool, is_school_holiday: bool, at_msk: datetime | None = None) -> ZoneFeatures:
+    at_msk = at_msk or datetime.now(MOSCOW_TZ)
+    hour_float = at_msk.hour + at_msk.minute / 60
     is_business_hours = compute_business_hours_intensity(hour_float)
     return ZoneFeatures(
         zone_id=zone.id,
@@ -349,48 +377,59 @@ def get_trend_baseline(session: Session) -> dict[str, int]:
             baseline[row.zone_id] = row.index_value
     return baseline
 
-def compute_all_indices(session: Session) -> list[dict]:
+def compute_all_indices(session: Session, at_msk: datetime | None = None) -> list[dict]:
     """Общее ядро для /zones и /zone-clusters — считает живой индекс по всем
     зонам один раз, дальше каждый эндпоинт по-своему группирует результат.
     Погода/календарь/темнота/каникулы считаются один раз на весь список, не
-    по кругу — 1752 внешних запроса на один /zones было бы неоправданно."""
-    weather_penalty = get_weather_penalty()
-    is_day_off = get_is_day_off()
-    is_dark = get_is_dark()
-    is_school_holiday = get_is_school_holiday()
-    feedback_stats = get_feedback_stats(session)
-    trend_baseline = get_trend_baseline(session)
+    по кругу — 1752 внешних запроса на один /zones было бы неоправданно.
+
+    at_msk задан -> РЕЖИМ ПРОГНОЗА (см. get_forecast_zones): считаем индекс на
+    указанный момент вместо текущего. В этом режиме сознательно НЕ пишем
+    снапшоты (это гипотетическое время, не наблюдение), НЕ подмешиваем живой
+    фидбек через blend_with_feedback (реальные отметки "нашёл/не нашёл"
+    относятся к текущему моменту, а не к прогнозируемому — смешивать нельзя,
+    испортит и прогноз, и обучение модели) и не считаем тренд (бессмысленен
+    для гипотетической точки во времени)."""
+    is_forecast = at_msk is not None
+    weather_penalty = get_weather_penalty(at_msk)
+    is_day_off = get_is_day_off(at_msk.date() if is_forecast else None)
+    is_dark = get_is_dark(at_msk.astimezone(timezone.utc) if is_forecast else None)
+    is_school_holiday = get_is_school_holiday(at_msk.date() if is_forecast else None)
+    feedback_stats = {} if is_forecast else get_feedback_stats(session)
+    trend_baseline = {} if is_forecast else get_trend_baseline(session)
 
     # Снапшоты (нужны только для тренда) пишем не чаще раза в SNAPSHOT_THROTTLE,
     # а не на каждый запрос — 1752 отдельные INSERT на каждый заход страницы
     # легко выбивают serverless-функцию за лимит в 10с на Hobby-плане Vercel.
     # Для тренда точность "раз в несколько минут" более чем достаточна.
-    SNAPSHOT_THROTTLE = timedelta(minutes=3)
-    last_snapshot_at = session.scalar(select(func.max(IndexSnapshot.ts)))
-    now_utc = datetime.now(timezone.utc)
-    if last_snapshot_at is not None and last_snapshot_at.tzinfo is None:
-        now_cmp = now_utc.replace(tzinfo=None)
-    else:
-        now_cmp = now_utc
-    should_write_snapshots = (
-        last_snapshot_at is None or (now_cmp - last_snapshot_at) > SNAPSHOT_THROTTLE
-    )
+    should_write_snapshots = False
+    if not is_forecast:
+        SNAPSHOT_THROTTLE = timedelta(minutes=3)
+        last_snapshot_at = session.scalar(select(func.max(IndexSnapshot.ts)))
+        now_utc = datetime.now(timezone.utc)
+        if last_snapshot_at is not None and last_snapshot_at.tzinfo is None:
+            now_cmp = now_utc.replace(tzinfo=None)
+        else:
+            now_cmp = now_utc
+        should_write_snapshots = (
+            last_snapshot_at is None or (now_cmp - last_snapshot_at) > SNAPSHOT_THROTTLE
+        )
 
     zones = session.scalars(select(Zone)).all()
     results = []
     for z in zones:
-        live_features = get_live_features(z, weather_penalty, is_day_off, is_dark, is_school_holiday)
+        live_features = get_live_features(z, weather_penalty, is_day_off, is_dark, is_school_holiday, at_msk)
         heuristic_idx = compute_availability_index(live_features)
-        idx = blend_with_feedback(heuristic_idx, z.id, feedback_stats)
+        idx = heuristic_idx if is_forecast else blend_with_feedback(heuristic_idx, z.id, feedback_stats)
 
         trend = "flat"
-        if z.id in trend_baseline:
+        if not is_forecast and z.id in trend_baseline:
             diff = idx - trend_baseline[z.id]
             trend = "up" if diff >= TREND_THRESHOLD else "down" if diff <= -TREND_THRESHOLD else "flat"
 
         yes, no = feedback_stats.get(z.id, (0, 0))
 
-        if should_write_snapshots:
+        if should_write_snapshots and not is_forecast:
             session.add(IndexSnapshot(
                 zone_id=z.id, index_value=idx,
                 weather_penalty=live_features.weather_penalty,
@@ -406,11 +445,25 @@ def compute_all_indices(session: Session) -> list[dict]:
     return results
 
 
+def parse_forecast_at(at: str | None) -> datetime | None:
+    """?at=2026-09-16T09:00 (локальное время Москвы, без смещения) -> aware
+    datetime в MOSCOW_TZ, или None, если параметр не передан/некорректен —
+    в этом случае просто работаем в live-режиме, как раньше."""
+    if not at:
+        return None
+    try:
+        dt = datetime.fromisoformat(at)
+        return dt.replace(tzinfo=MOSCOW_TZ) if dt.tzinfo is None else dt.astimezone(MOSCOW_TZ)
+    except ValueError:
+        return None
+
+
 @app.get("/api/zones")
-def list_zones():
+def list_zones(at: str | None = Query(None, description="Прогноз на момент времени, ISO, напр. 2026-09-16T09:00")):
     """Демо-слой — реальные линии улиц, индекс на уровне конкретного сегмента."""
+    at_msk = parse_forecast_at(at)
     with Session(engine) as session:
-        results = compute_all_indices(session)
+        results = compute_all_indices(session, at_msk)
         features = [{
             "type": "Feature",
             "geometry": json.loads(r["zone"].geometry_json),
@@ -429,13 +482,14 @@ def list_zones():
                 "trend": r["trend"],
                 "feedback_count": r["feedback_count"],
                 "explain": r["explain"],
+                "is_forecast": at_msk is not None,
             },
         } for r in results]
-        return {"type": "FeatureCollection", "features": features}
+        return {"type": "FeatureCollection", "features": features, "is_forecast": at_msk is not None}
 
 
 @app.get("/api/zone-clusters")
-def list_zone_clusters():
+def list_zone_clusters(at: str | None = Query(None, description="Прогноз на момент времени, ISO, напр. 2026-09-16T09:00")):
     """
     Основной слой — агрегация по географической сетке (~250м ячейка), не по
     официальному номеру зоны: тарифный номер города может относиться к
@@ -448,8 +502,9 @@ def list_zone_clusters():
     разброс больше CLUSTER_HETEROGENEITY_THRESHOLD — зона помечается
     is_heterogeneous=true.
     """
+    at_msk = parse_forecast_at(at)
     with Session(engine) as session:
-        results = compute_all_indices(session)
+        results = compute_all_indices(session, at_msk)
 
         groups: dict[tuple[int, int], list[dict]] = {}
         for r in results:
@@ -504,10 +559,11 @@ def list_zone_clusters():
                     "centroid_lon": centroid_lon,
                     "representative_zone_id": representative["zone"].id,
                     "explain": representative["explain"],
+                    "is_forecast": at_msk is not None,
                 },
             })
 
-        return {"type": "FeatureCollection", "features": features}
+        return {"type": "FeatureCollection", "features": features, "is_forecast": at_msk is not None}
 
 
 @app.get("/api/alternatives")
@@ -525,24 +581,31 @@ def get_alternatives(zone_id: str):
             raise HTTPException(404, "Zone not found")
 
         results = compute_all_indices(session)
-        candidates = []
+        nearby = []
         for r in results:
             z = r["zone"]
-            if z.id == zone_id or r["index"] < ALTERNATIVE_MIN_INDEX:
+            if z.id == zone_id:
                 continue
             dist_m = haversine_m(origin.lat, origin.lon, z.lat, z.lon)
             if dist_m > ALTERNATIVE_SEARCH_RADIUS_M:
                 continue
             walk_min = round((dist_m * WALK_DETOUR_FACTOR) / WALK_SPEED_M_PER_MIN)
-            candidates.append({
+            nearby.append({
                 "zone_id": z.id, "name": z.name, "index_value": r["index"],
                 "distance_m": round(dist_m), "walk_minutes": max(walk_min, 1),
                 "lat": z.lat, "lon": z.lon,
-                "tariff_weekday_car_rub": z.tariff_rub_per_hour,
                 "car_capacity": z.car_capacity or 0,
                 "potentially_free": round((z.car_capacity or 0) * r["index"] / 100),
             })
 
+        # Сначала пробуем только зоны с "высокой доступностью" (тот же порог,
+        # что в легенде карты). Если рядом таких нет вообще (типично для
+        # плотного центра, где везде оранжево-красно) — не отдаём пустой
+        # список, а показываем лучшее из того, что реально есть поблизости,
+        # а не молчим. Честно с реальным index_value, без прикрас.
+        candidates = [c for c in nearby if c["index_value"] >= ALTERNATIVE_MIN_INDEX]
+        if not candidates:
+            candidates = sorted(nearby, key=lambda c: -c["index_value"])[:3]
         candidates.sort(key=lambda c: c["distance_m"])
         return {"origin_zone_id": zone_id, "alternatives": candidates[:3]}
 
