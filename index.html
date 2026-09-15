@@ -127,6 +127,72 @@
     padding: 3px;
     gap: 2px;
   }
+
+  #forecast-toggle {
+    position: absolute;
+    top: calc(max(16px, env(safe-area-inset-top)) + 96px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(30, 34, 42, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  #forecast-toggle.active { color: var(--amber); border-color: var(--amber-dim); }
+
+  #forecast-panel {
+    position: absolute;
+    top: calc(max(16px, env(safe-area-inset-top)) + 138px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(20, 23, 28, 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    border-radius: 16px;
+    padding: 14px;
+    width: min(320px, calc(100vw - 32px));
+  }
+  #forecast-panel.open { display: flex; }
+  #forecast-panel .row { display: flex; gap: 8px; }
+  #forecast-panel input {
+    flex: 1; background: rgba(255,255,255,.06); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 8px 10px; color: var(--text-primary); font-size: 13px;
+  }
+  #forecast-panel .actions { display: flex; gap: 8px; }
+  #forecast-panel button {
+    flex: 1; border: none; border-radius: 10px; padding: 9px 10px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  #forecast-apply-btn { background: var(--amber); color: #14171C; }
+  #forecast-cancel-btn { background: rgba(255,255,255,.08); color: var(--text-primary); }
+  #forecast-banner {
+    position: absolute;
+    top: calc(max(16px, env(safe-area-inset-top)) + 96px);
+    left: 50%; transform: translateX(-50%);
+    z-index: 9;
+    max-width: min(360px, calc(100vw - 32px));
+    background: rgba(255,176,32,0.14);
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-size: 12px;
+    text-align: center;
+    display: none;
+  }
+  #forecast-banner.active { display: block; }
   .layer-btn {
     border: none; background: none; cursor: pointer;
     padding: 7px 16px; border-radius: 999px;
@@ -655,7 +721,7 @@
     #demo-watermark { right: 24px; }
 
     #refine-panel {
-      left: auto; right: 24px; bottom: 76px; top: auto;
+      left: auto; right: 24px; bottom: 140px; top: auto;
       max-width: 380px; border-radius: 20px;
       border: 1px solid var(--hairline);
       box-shadow: 0 8px 40px rgba(0,0,0,.4);
@@ -708,6 +774,21 @@
       <button class="layer-btn active" data-layer="cluster">Зоны</button>
       <button class="layer-btn" data-layer="demo"><span class="demo-shine"></span>DEMO</button>
     </div>
+    <div id="forecast-toggle">
+      <span>🕐</span>
+      <span id="forecast-toggle-label">Сейчас · <span id="status-pill-time"></span></span>
+    </div>
+    <div id="forecast-panel">
+      <div class="row">
+        <input type="date" id="forecast-date">
+        <input type="time" id="forecast-time">
+      </div>
+      <div class="actions">
+        <button id="forecast-cancel-btn">Сейчас</button>
+        <button id="forecast-apply-btn">Показать прогноз</button>
+      </div>
+    </div>
+    <div id="forecast-banner">📊 Прогноз на <span id="forecast-banner-time"></span> — отметки «нашёл/не нашёл» здесь недоступны, чтобы не сбивать обучение модели</div>
     <div id="error-banner"><button id="error-banner-close" aria-label="Закрыть">✕</button><span id="error-banner-text"></span></div>
     <div id="weather-pill"></div>
     <div id="demo-watermark">DEMO</div>
@@ -737,7 +818,6 @@
     <div id="filter-chips">
       <button class="filter-chip active" data-filter="all">Все</button>
       <button class="filter-chip" data-filter="favorites">★ Избранное</button>
-      <button class="filter-chip" data-filter="free">Бесплатно</button>
       <button class="filter-chip" data-filter="nearest">Ближайшие</button>
       <button class="filter-chip" data-filter="reliable">Надёжные данные</button>
     </div>
@@ -1136,12 +1216,67 @@ function initMapLayers() {
     }
     loadZones();
     loadClusters();
-    setInterval(() => { loadZones(); loadClusters(); }, 5 * 60 * 1000);
+    setInterval(() => { if (!forecastAt) { loadZones(); loadClusters(); } }, 5 * 60 * 1000);
   });
 }
 
 let currentZoneId = null;
 let currentFeedbackLayer = 'demo';
+
+// ---------- Режим прогноза: индекс не на "сейчас", а на выбранные дату/время ----------
+// В этом режиме отметки "нашёл/не нашёл" отключены (см. openSheet) — реальный
+// фидбек пользователя относится к текущему моменту, а не к гипотетическому
+// времени прогноза, подмешивать его туда нельзя (испортит и прогноз, и обучение).
+let forecastAt = null; // ISO-строка местного времени Москвы ("2026-09-16T09:00") или null
+
+function mskNowForInputs() {
+  const nowMsk = mskClockOffsetMs !== null ? new Date(Date.now() + mskClockOffsetMs) : new Date();
+  return {
+    date: nowMsk.toISOString().slice(0, 10),
+    time: `${String(nowMsk.getUTCHours()).padStart(2, '0')}:${String(nowMsk.getUTCMinutes()).padStart(2, '0')}`,
+  };
+}
+
+document.getElementById('forecast-toggle').addEventListener('click', () => {
+  const panel = document.getElementById('forecast-panel');
+  const willOpen = !panel.classList.contains('open');
+  panel.classList.toggle('open', willOpen);
+  if (willOpen) {
+    const { date, time } = mskNowForInputs();
+    if (!document.getElementById('forecast-date').value) document.getElementById('forecast-date').value = date;
+    if (!document.getElementById('forecast-time').value) document.getElementById('forecast-time').value = time;
+  }
+});
+
+document.getElementById('forecast-apply-btn').addEventListener('click', () => {
+  const date = document.getElementById('forecast-date').value;
+  const time = document.getElementById('forecast-time').value;
+  if (!date || !time) return;
+  forecastAt = `${date}T${time}`;
+  document.getElementById('forecast-toggle').classList.add('active');
+  document.getElementById('forecast-toggle-label').textContent =
+    `Прогноз · ${date.split('-').reverse().join('.')} ${time}`;
+  document.getElementById('forecast-panel').classList.remove('open');
+  const banner = document.getElementById('forecast-banner');
+  document.getElementById('forecast-banner-time').textContent = `${date.split('-').reverse().join('.')} ${time}`;
+  banner.classList.add('active');
+  closeSheet();
+  loadZones();
+  loadClusters();
+});
+
+document.getElementById('forecast-cancel-btn').addEventListener('click', () => {
+  forecastAt = null;
+  document.getElementById('forecast-toggle').classList.remove('active');
+  document.getElementById('forecast-panel').classList.remove('open');
+  document.getElementById('forecast-banner').classList.remove('active');
+  const label = document.getElementById('forecast-toggle-label');
+  label.innerHTML = 'Сейчас · <span id="status-pill-time"></span>';
+  tickStatusPillClock();
+  closeSheet();
+  loadZones();
+  loadClusters();
+});
 
 // ---------- Геолокация + "уточнить геопозицию" (как у Яндекса) ----------
 // Автоматическая геолокация в Москве часто врёт из-за плотной застройки
@@ -1192,8 +1327,6 @@ async function loadContext() {
 
     // Дата/день недели/время — универсально полезны и понятны всем, в
     // отличие от "каникулы", которые касаются не каждого пользователя.
-    document.querySelector('#status-pill span:last-child').innerHTML =
-      `Садовое кольцо · <strong id="zone-count">${latestZones.length || '—'}</strong> зон · <span id="status-pill-time"></span>`;
     tickStatusPillClock();
     setInterval(tickStatusPillClock, 1000);
   } catch (e) {
@@ -1442,6 +1575,7 @@ function openSheet(props, kind = 'demo') {
   currentFeedbackLayer = kind;
   document.getElementById('hetero-note').style.display = 'none';
   document.getElementById('alt-block').style.display = 'none';
+  document.getElementById('refine-panel').classList.remove('open');
 
   if (kind === 'cluster') {
     currentZoneId = props.representative_zone_id || null;
@@ -1452,19 +1586,21 @@ function openSheet(props, kind = 'demo') {
     document.getElementById('sheet-zone-sub').textContent =
       `${props.segment_count} парковок · всего ${props.total_capacity} мест · ${freeText}`;
     setGauge(props.index_mean);
-    document.getElementById('gauge-number').textContent = `${props.index_min}–${props.index_max}%`;
-    document.getElementById('gauge-number').classList.add('range');
+    if (props.index_min === props.index_max) {
+      document.getElementById('gauge-number').textContent = `${props.index_min}%`;
+      document.getElementById('gauge-number').classList.remove('range');
+    } else {
+      document.getElementById('gauge-number').textContent = `${props.index_min}–${props.index_max}%`;
+      document.getElementById('gauge-number').classList.add('range');
+    }
     if (props.is_heterogeneous) {
       document.getElementById('hetero-note').style.display = 'block';
     }
   } else {
     currentZoneId = props.id;
     document.getElementById('sheet-zone-name').textContent = props.name;
-    const tariffText = props.tariff_weekday_car_rub > 0
-      ? `${props.tariff_weekday_car_rub} ₽/ч по будням`
-      : 'Бесплатно сейчас';
     document.getElementById('sheet-zone-sub').textContent =
-      `${tariffText} · всего ${props.car_capacity} мест · ≈${props.potentially_free ?? '—'} свободно`;
+      `Всего ${props.car_capacity} мест · ≈${props.potentially_free ?? '—'} свободно`;
     setGauge(props.index_value);
     document.getElementById('gauge-number').textContent = props.index_value + '%';
     document.getElementById('gauge-number').classList.remove('range');
@@ -1479,9 +1615,14 @@ function openSheet(props, kind = 'demo') {
   currentSheetLatLon = [lat, lon];
   renderDistanceToUser(lat, lon);
 
-  document.getElementById('feedback-buttons').style.display = 'flex';
-  document.getElementById('feedback-thanks').style.display = 'none';
-  document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('chosen'));
+  if (forecastAt) {
+    document.getElementById('feedback-block').style.display = 'none';
+  } else {
+    document.getElementById('feedback-block').style.display = '';
+    document.getElementById('feedback-buttons').style.display = 'flex';
+    document.getElementById('feedback-thanks').style.display = 'none';
+    document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('chosen'));
+  }
 
   document.getElementById('sheet').classList.add('open');
   document.getElementById('sheet-scrim').classList.add('open');
@@ -1532,7 +1673,7 @@ async function showAlternatives(originZoneId) {
         map.flyTo({ center: [alt.lon, alt.lat], zoom: 16.5 });
         openSheet({
           id: alt.zone_id, name: alt.name, index_value: alt.index_value,
-          tariff_weekday_car_rub: alt.tariff_weekday_car_rub, car_capacity: alt.car_capacity,
+          car_capacity: alt.car_capacity,
           potentially_free: alt.potentially_free, lat: alt.lat, lon: alt.lon,
           explain: [], feedback_count: 0, trend: 'flat',
         }, 'demo');
@@ -1645,7 +1786,8 @@ let latestClusterGeojson = null;
 async function loadZones() {
   let geojson;
   try {
-    const res = await fetch(`${API_BASE}/zones`);
+    const url = forecastAt ? `${API_BASE}/zones?at=${encodeURIComponent(forecastAt)}` : `${API_BASE}/zones`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     geojson = await res.json();
   } catch (e) {
@@ -1696,7 +1838,8 @@ async function loadZones() {
 async function loadClusters() {
   let geojson;
   try {
-    const res = await fetch(`${API_BASE}/zone-clusters`);
+    const url = forecastAt ? `${API_BASE}/zone-clusters?at=${encodeURIComponent(forecastAt)}` : `${API_BASE}/zone-clusters`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     geojson = await res.json();
   } catch (e) {
@@ -1770,8 +1913,6 @@ function renderList() {
   if (currentListFilter === 'favorites') {
     const favs = getFavorites();
     items = items.filter(z => favs.includes(z.id));
-  } else if (currentListFilter === 'free') {
-    items = items.filter(z => z.tariff_weekday_car_rub === 0);
   }
 
   if (currentListFilter === 'nearest' && userLocationMarker) {
@@ -1797,7 +1938,7 @@ function renderList() {
       <div class="zone-badge" style="background:${colorDimForIndex(z.index_value)}; color:${colorForIndex(z.index_value)}">${z.index_value}%</div>
       <div class="zone-info">
         <div class="name">${favMark}${z.name}</div>
-        <div class="sub">${z.tariff_weekday_car_rub > 0 ? z.tariff_weekday_car_rub + ' ₽/ч' : 'бесплатно'} · ${z.car_capacity} мест${z.feedback_count ? ' · ' + z.feedback_count + ' отметок' : ''}</div>
+        <div class="sub">${z.car_capacity} мест${z.feedback_count ? ' · ' + z.feedback_count + ' отметок' : ''}</div>
       </div>`;
     card.addEventListener('click', () => openSheet(z));
     container.appendChild(card);
