@@ -559,6 +559,8 @@ def list_zone_clusters(at: str | None = Query(None, description="Прогноз 
                     "centroid_lon": centroid_lon,
                     "representative_zone_id": representative["zone"].id,
                     "explain": representative["explain"],
+                    "tariff_min": min(m["zone"].tariff_rub_per_hour or 0 for m in members),
+                    "tariff_max": max(m["zone"].tariff_rub_per_hour or 0 for m in members),
                     "is_forecast": at_msk is not None,
                 },
             })
