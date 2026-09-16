@@ -689,12 +689,27 @@ def get_context():
 def community_stats():
     """Коллективная статистика — сколько всего меток оставило сообщество,
     без привязки к конкретному человеку. Это и есть 'социальная' часть
-    продукта: видно вклад всех сразу, а не чей-то персональный профиль."""
+    продукта: видно вклад всех сразу, а не чей-то персональный профиль.
+
+    daily — последние 84 дня (12 недель) для трекера вклада в профиле,
+    по датам в МСК, чтобы совпадало с тем, что видит пользователь."""
     with Session(engine) as session:
         all_rows = session.scalars(select(UserFeedback)).all()
-        today_start = datetime.now(MOSCOW_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        today_count = sum(1 for r in all_rows if r.ts.replace(tzinfo=timezone.utc) >= today_start)
-        return {"total_all_time": len(all_rows), "total_today": today_count}
+        today_msk = datetime.now(MOSCOW_TZ).date()
+        today_start_utc = datetime.now(MOSCOW_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        today_count = sum(1 for r in all_rows if r.ts.replace(tzinfo=timezone.utc) >= today_start_utc)
+
+        buckets: dict[str, int] = {}
+        for r in all_rows:
+            day_msk = r.ts.replace(tzinfo=timezone.utc).astimezone(MOSCOW_TZ).date().isoformat()
+            buckets[day_msk] = buckets.get(day_msk, 0) + 1
+        DAYS = 84
+        daily = [
+            {"date": (today_msk - timedelta(days=i)).isoformat(), "count": buckets.get((today_msk - timedelta(days=i)).isoformat(), 0)}
+            for i in range(DAYS - 1, -1, -1)
+        ]
+
+        return {"total_all_time": len(all_rows), "total_today": today_count, "daily": daily}
 
 
 @app.get("/api/top-verified-today")
@@ -735,9 +750,34 @@ def submit_app_feedback(payload: AppFeedbackIn):
 
 
 @app.get("/api/weather-now")
-def weather_now():
+def weather_now(at: str | None = Query(None, description="Прогноз на момент времени, ISO")):
     """Текущая погода в явном виде — раньше использовалась только внутри
-    формулы, теперь показывается и пользователю для прозрачности."""
+    формулы, теперь показывается и пользователю для прозрачности.
+    ?at=... -> прогнозная погода на этот момент (см. get_weather_penalty)."""
+    at_msk = parse_forecast_at(at)
+    if at_msk is not None:
+        try:
+            resp = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": MOSCOW_CENTER_LAT, "longitude": MOSCOW_CENTER_LON,
+                    "hourly": "temperature_2m,precipitation", "timezone": "Europe/Moscow",
+                    "forecast_days": 16,
+                },
+                timeout=5,
+            )
+            resp.raise_for_status()
+            hourly = resp.json()["hourly"]
+            target = at_msk.strftime("%Y-%m-%dT%H:00")
+            i = hourly["time"].index(target) if target in hourly["time"] else 0
+            return {
+                "temp_c": hourly["temperature_2m"][i],
+                "precip_mm": hourly["precipitation"][i],
+                "penalty": compute_weather_penalty(hourly["precipitation"][i], hourly["temperature_2m"][i]),
+            }
+        except Exception as e:
+            print(f"[WARN] Не удалось получить прогноз погоды для /weather-now: {e}")
+            return {"temp_c": None, "precip_mm": None, "penalty": 0.0}
     get_weather_penalty()  # обновит кэш при необходимости
     return {
         "temp_c": _weather_cache["temp_c"],
