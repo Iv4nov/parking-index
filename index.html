@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#14171C">
+<meta name="theme-color" content="#0A0A12">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Индекс парковки</title>
@@ -11,23 +11,34 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
 <script src="https://unpkg.com/@protomaps/basemaps@5/dist/index.js"></script>
 <style>
   :root {
-    --bg-deep: #14171C;
-    --surface: #1E222A;
-    --surface-raised: #262B35;
-    --hairline: #333A46;
-    --amber: #FFB020;
-    --amber-dim: rgba(255, 176, 32, 0.18);
+    /* Тёмная почти-чёрная база с фиолетовым акцентом — интерфейсная "оболочка".
+       Цвета самих зон (green/amber/red) остаются семантическими и не меняются. */
+    --bg-deep: #0A0A12;
+    --surface: #12121C;
+    --surface-raised: #1A1A27;
+    --hairline: #262636;
+    --accent: #A78BFA;
+    --accent-strong: #8B5CF6;
+    --accent-dim: rgba(167, 139, 250, 0.16);
+    --accent-glow: rgba(139, 92, 246, 0.35);
+    --cyan: #5EEAD4;
+    /* Совместимость: часть правил и легенда карты ссылаются на --amber */
+    --amber: #A78BFA;
+    --amber-dim: rgba(167, 139, 250, 0.16);
+    --zone-green: #3DDC84;
+    --zone-amber: #FFB020;
+    --zone-red: #FF5A5F;
     --green: #3DDC84;
     --red: #FF5A5F;
-    --text-primary: #F2F0EA;
-    --text-muted: #8B95A6;
-    --font-display: 'Space Grotesk', sans-serif;
+    --text-primary: #F4F2FF;
+    --text-muted: #8B88A8;
+    --font-display: 'Sora', 'Space Grotesk', sans-serif;
     --font-body: 'Inter', sans-serif;
   }
 
@@ -48,7 +59,7 @@
   /* Висячие строки (короткое слово-огрызок в конце строки) — просим браузер
      сам подбирать перенос без "сирот"; поддерживается в свежих Chrome/Edge/
      Safari, в остальных просто игнорируется без вреда. */
-  p, .sub, .profile-stat-sub, #forecast-banner, .disclaimer-card p, .profile-block p {
+  p, .sub, #forecast-banner, .disclaimer-card p, .p-card p, .p-hero-sub, .p-hours-note, .p-pulse-note {
     text-wrap: pretty;
   }
 
@@ -85,8 +96,8 @@
     top: max(16px, env(safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(30, 34, 42, 0.82);
-    backdrop-filter: blur(12px);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     border: 1px solid var(--hairline);
     border-radius: 999px;
     padding: 10px 18px;
@@ -115,8 +126,8 @@
     bottom: calc(64px + env(safe-area-inset-bottom) + 16px);
     left: 16px;
     z-index: 10;
-    background: rgba(30, 34, 42, 0.82);
-    backdrop-filter: blur(12px);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     border: 1px solid var(--hairline);
     border-radius: 14px;
     padding: 10px 14px;
@@ -139,8 +150,8 @@
     transform: translateX(-50%);
     z-index: 10;
     display: flex;
-    background: rgba(30, 34, 42, 0.85);
-    backdrop-filter: blur(12px);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     border: 1px solid var(--hairline);
     border-radius: 999px;
     padding: 3px;
@@ -156,8 +167,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: rgba(30, 34, 42, 0.85);
-    backdrop-filter: blur(12px);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     border: 1px solid var(--hairline);
     border-radius: 999px;
     padding: 8px 14px;
@@ -165,7 +176,8 @@
     color: var(--text-muted);
     cursor: pointer;
   }
-  #forecast-toggle.active { color: var(--amber); border-color: var(--amber-dim); }
+  #forecast-toggle.active { color: var(--accent); border-color: var(--accent); }
+  #forecast-toggle-label { text-align: center; white-space: nowrap; }
 
   #forecast-panel {
     position: absolute;
@@ -176,7 +188,7 @@
     display: none;
     flex-direction: column;
     gap: 10px;
-    background: rgba(20, 23, 28, 0.95);
+    background: rgba(16, 16, 26, 0.94);
     backdrop-filter: blur(12px);
     border: 1px solid var(--hairline);
     border-radius: 16px;
@@ -251,9 +263,13 @@
   #list-header { padding: 0 20px 16px; }
   #list-header h1 {
     font-family: var(--font-display);
-    font-size: 24px;
-    font-weight: 700;
-    margin: 0 0 4px;
+    font-size: clamp(30px, 6vw, 46px);
+    font-weight: 800;
+    letter-spacing: -.03em;
+    line-height: 1;
+    margin: 0 0 8px;
+    background: linear-gradient(135deg, #fff 15%, var(--accent) 85%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   #list-header p { margin: 0; font-size: 13px; color: var(--text-muted); }
 
@@ -262,13 +278,14 @@
     align-items: center;
     gap: 14px;
     margin: 0 16px 10px;
-    padding: 14px 16px;
+    padding: 15px 17px;
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 16px;
+    border-radius: 18px;
     cursor: pointer;
-    transition: transform .12s ease, border-color .15s ease;
+    transition: transform .14s ease, border-color .2s ease, background .2s ease;
   }
+  .zone-card:hover { border-color: rgba(167,139,250,.4); background: var(--surface-raised); }
   .zone-card:active { transform: scale(.98); border-color: var(--amber); }
   .zone-badge {
     flex-shrink: 0;
@@ -288,96 +305,169 @@
   .zone-info .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   /* ============ ЭКРАН: ПРОФИЛЬ ============ */
-  .profile-hero { padding: 4px 0 2px; }
-  .profile-hero h1 {
-    font-family: var(--font-display); font-size: 30px; font-weight: 700; margin: 0 0 6px;
-    background: linear-gradient(135deg, #fff 20%, var(--amber) 90%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-  .profile-hero-sub { font-size: 13.5px; color: var(--text-muted); margin: 0; }
+  #screen-profile { overflow-y: auto; padding: max(20px, env(safe-area-inset-top)) 16px 0; }
 
-  /* ---- "Твой вклад" — акцентная карточка со статистикой ---- */
-  .profile-stat-card {
-    background: linear-gradient(135deg, rgba(255,176,32,0.16), rgba(61,220,132,0.08));
-    border: 1px solid rgba(255,176,32,0.32);
-    border-radius: 20px;
-    padding: 20px;
-    margin-bottom: 14px;
-    display: flex; align-items: center; gap: 18px;
-    box-shadow: 0 14px 34px rgba(0,0,0,.28);
+  /* Плотная адаптивная сетка: карточки сами укладываются в колонки по ширине
+     экрана, поэтому на широком мониторе не остаётся пустых полей, а на
+     телефоне всё честно схлопывается в одну колонку. */
+  #profile-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-auto-rows: minmax(min-content, auto);
+    gap: 12px;
+    align-content: start;
+    padding-bottom: 24px;
   }
 
-  /* ---- Трекер вклада — тепловая карта активности за 12 недель ---- */
-  .tracker-card { padding: 18px 16px; }
-  .contribution-grid {
-    display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr);
-    gap: 3px; overflow-x: auto; padding-bottom: 4px;
-  }
-  .contribution-cell {
-    width: 11px; height: 11px; border-radius: 3px;
-    background: rgba(255,255,255,.06);
-  }
-  .contribution-cell[data-level="1"] { background: rgba(255,176,32,.35); }
-  .contribution-cell[data-level="2"] { background: rgba(255,176,32,.65); }
-  .contribution-cell[data-level="3"] { background: var(--amber); box-shadow: 0 0 8px rgba(255,176,32,.55); }
-  .tracker-legend { display: flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; color: var(--text-muted); }
-  .tracker-swatch { width: 10px; height: 10px; border-radius: 3px; background: rgba(255,255,255,.06); }
-  .tracker-swatch[data-level="1"] { background: rgba(255,176,32,.35); }
-  .tracker-swatch[data-level="2"] { background: rgba(255,176,32,.65); }
-  .tracker-swatch[data-level="3"] { background: var(--amber); }
-  .profile-stat-number {
-    font-family: var(--font-display); font-weight: 700; font-size: 40px;
-    color: var(--amber); line-height: 1; font-variant-numeric: tabular-nums;
-  }
-  .profile-stat-label { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
-  .profile-stat-sub { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
-
-  /* ---- Шкала — градиентная полоса вместо списка ---- */
-  .profile-gradient-bar {
-    height: 10px; border-radius: 999px; margin: 10px 0 12px;
-    background: linear-gradient(90deg, #FF5A5F, #FFB020 50%, #3DDC84);
-  }
-  .profile-gradient-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
-
-  /* ---- "Что это на самом деле" — карточка-цитата ---- */
-  .profile-quote-card {
-    background: transparent;
-    border: none; border-left: 3px solid var(--amber);
-    border-radius: 4px;
-    padding: 4px 0 4px 16px;
-    margin-bottom: 14px;
-  }
-  .profile-quote-card p { font-style: italic; color: var(--text-muted); }
-
-  /* ---- Пилот — карточка с декоративным кольцом ---- */
-  .profile-pilot-card {
-    display: flex; align-items: center; gap: 16px;
-    background: var(--surface); border: 1px solid var(--hairline); border-radius: 20px;
-    padding: 18px; margin-bottom: 14px;
-    box-shadow: 0 10px 26px rgba(0,0,0,.22);
-  }
-  .profile-pilot-ring {
-    flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%;
-    border: 4px solid var(--amber); border-right-color: var(--hairline); border-bottom-color: var(--hairline);
-    transform: rotate(-45deg);
-  }
-
-  #screen-profile { overflow-y: auto; padding: max(20px, env(safe-area-inset-top)) 20px 0; }
-  #screen-profile h1 { font-family: var(--font-display); font-size: 24px; margin: 0 0 20px; }
-  .profile-block {
+  .p-card {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 20px;
-    padding: 18px;
-    margin-bottom: 14px;
-    box-shadow: 0 10px 26px rgba(0,0,0,.22);
+    border-radius: 22px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
   }
-  .profile-block h2 {
-    font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--text-muted); margin: 0 0 10px; font-weight: 600;
+  .p-card::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(167,139,250,.5), transparent);
   }
-  .profile-block p { font-size: 14px; line-height: 1.5; margin: 0 0 8px; color: var(--text-primary); }
-  .profile-block p:last-child { margin-bottom: 0; }
+  .p-eyebrow {
+    font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 14px; font-weight: 600;
+  }
+
+  /* ---- Герой ---- */
+  .p-hero { grid-column: 1 / -1; padding: 10px 4px 6px; }
+  .p-hero-label {
+    font-size: 10.5px; letter-spacing: .28em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 12px; font-weight: 600;
+  }
+  .p-hero h1 {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: clamp(38px, 9vw, 76px); line-height: .92; letter-spacing: -.03em;
+    margin: 0 0 14px;
+    background: linear-gradient(135deg, #fff 8%, var(--accent) 58%, var(--accent-strong) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .p-hero-sub { font-size: 14px; color: var(--text-muted); margin: 0; max-width: 46ch; line-height: 1.55; }
+
+  /* ---- Всего отметок ---- */
+  .p-card--accent {
+    background:
+      radial-gradient(90% 120% at 0% 0%, rgba(139,92,246,.22), transparent 60%),
+      var(--surface);
+    border-color: rgba(167,139,250,.32);
+  }
+  .p-total-num {
+    font-family: var(--font-display); font-weight: 800;
+    font-size: clamp(46px, 7vw, 68px); line-height: 1; letter-spacing: -.03em;
+    color: var(--text-primary); font-variant-numeric: tabular-nums;
+  }
+  .p-total-label { font-size: 12.5px; color: var(--text-muted); margin-top: 10px; line-height: 1.45; }
+  .p-total-sub { font-size: 12px; color: var(--text-muted); margin-top: 16px; line-height: 1.5; opacity: .85; }
+
+  /* ---- Пульс дня: кольцевой индикатор ---- */
+  .p-pulse { display: flex; flex-direction: column; }
+  .p-pulse-ring { position: relative; width: 132px; height: 132px; margin: 4px auto 0; }
+  .p-pulse-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .p-pulse-track { fill: none; stroke: rgba(255,255,255,.07); stroke-width: 9; }
+  .p-pulse-fill {
+    fill: none; stroke: var(--accent); stroke-width: 9; stroke-linecap: round;
+    stroke-dasharray: 327; stroke-dashoffset: 327;
+    filter: drop-shadow(0 0 7px var(--accent-glow));
+    transition: stroke-dashoffset 1.1s cubic-bezier(.16,1,.3,1);
+  }
+  .p-pulse-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px;
+  }
+  .p-pulse-center div {
+    font-family: var(--font-display); font-weight: 700; font-size: 32px;
+    line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .p-pulse-center span { font-size: 10.5px; color: var(--text-muted); letter-spacing: .1em; text-transform: uppercase; }
+  .p-pulse-note { font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 16px; line-height: 1.5; }
+
+  /* ---- Тепловая карта активности ---- */
+  .p-tracker { grid-column: span 2; }
+  .p-grid {
+    display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr);
+    gap: 3px; overflow-x: auto; padding-bottom: 6px;
+  }
+  .p-grid::-webkit-scrollbar { height: 0; }
+  .p-cell { width: 12px; height: 12px; border-radius: 3px; background: rgba(255,255,255,.05); }
+  .p-cell[data-level="1"] { background: rgba(167,139,250,.32); }
+  .p-cell[data-level="2"] { background: rgba(167,139,250,.62); }
+  .p-cell[data-level="3"] { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+  .p-grid-legend { display: flex; align-items: center; gap: 5px; margin-top: 12px; font-size: 10.5px; color: var(--text-muted); }
+  .p-grid-legend i { width: 10px; height: 10px; border-radius: 3px; background: rgba(255,255,255,.05); }
+  .p-grid-legend i[data-level="1"] { background: rgba(167,139,250,.32); }
+  .p-grid-legend i[data-level="2"] { background: rgba(167,139,250,.62); }
+  .p-grid-legend i[data-level="3"] { background: var(--accent); }
+
+  /* ---- Профиль суток ---- */
+  .p-hours { grid-column: span 2; }
+  .p-hours-chart { display: flex; align-items: flex-end; gap: 3px; height: 108px; }
+  .p-hours-bar {
+    flex: 1; border-radius: 4px 4px 2px 2px; min-height: 4px;
+    background: linear-gradient(180deg, var(--accent), rgba(139,92,246,.25));
+    transition: height .9s cubic-bezier(.16,1,.3,1), opacity .2s ease;
+  }
+  .p-hours-bar.now { background: linear-gradient(180deg, #fff, var(--accent)); box-shadow: 0 0 12px var(--accent-glow); }
+  .p-hours-axis { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-muted); margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .p-hours-note { font-size: 11.5px; color: var(--text-muted); margin-top: 12px; line-height: 1.5; opacity: .8; }
+
+  /* ---- Топ зон ---- */
+  .p-top #top-verified-list { font-size: 13px; color: var(--text-muted); }
+  .p-top-row {
+    display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+    padding: 9px 0; border-bottom: 1px solid var(--hairline);
+  }
+  .p-top-row:last-child { border-bottom: none; }
+  .p-top-row b { color: var(--text-primary); font-weight: 500; font-size: 13px; }
+  .p-top-row span { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  /* ---- Шкала ---- */
+  .p-scale-bar {
+    height: 10px; border-radius: 999px; margin-bottom: 12px;
+    background: linear-gradient(90deg, #FF5A5F, #FFB020 50%, #3DDC84);
+  }
+  .p-scale-ticks { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-muted); }
+
+  /* ---- Пилот ---- */
+  .p-pilot { display: flex; align-items: center; gap: 16px; }
+  .p-pilot-ring {
+    flex-shrink: 0; width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid var(--accent); border-right-color: var(--hairline); border-bottom-color: var(--hairline);
+    transform: rotate(-45deg);
+  }
+  .p-pilot-title { font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+  .p-pilot-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+
+  /* ---- Цитата ---- */
+  .p-quote { background: transparent; border: none; border-left: 2px solid var(--accent); border-radius: 0; padding: 4px 0 4px 18px; }
+  .p-quote::before { display: none; }
+  .p-quote p { font-size: 14px; font-style: italic; color: var(--text-muted); margin: 0; line-height: 1.6; }
+
+  /* ---- Форма обратной связи ---- */
+  .p-feedback { grid-column: 1 / -1; }
+  .p-feedback select, .p-feedback textarea {
+    width: 100%; box-sizing: border-box; padding: 12px 13px; border-radius: 13px;
+    border: 1px solid var(--hairline); background: var(--surface-raised);
+    color: var(--text-primary); font-size: 14px; font-family: var(--font-body);
+    margin-bottom: 10px;
+  }
+  .p-feedback textarea { resize: vertical; }
+  .p-feedback #feedback-submit-btn { width: 100%; }
+  .p-feedback #feedback-submit-thanks { display: none; color: var(--green); font-size: 13px; margin-top: 10px; }
+
+  #app-version { grid-column: 1 / -1; }
+
+  /* На узких экранах широкие карточки тоже в одну колонку */
+  @media (max-width: 620px) {
+    .p-tracker, .p-hours { grid-column: 1 / -1; }
+  }
+
   .legend-line { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 4px 0; }
   .legend-line .swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   #app-version { text-align: center; font-size: 12px; color: var(--text-muted); padding: 16px 0 24px; }
@@ -388,8 +478,8 @@
     left: 0; right: 0; bottom: 0;
     height: calc(64px + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
-    background: rgba(30, 34, 42, 0.92);
-    backdrop-filter: blur(16px);
+    background: rgba(10, 10, 18, 0.88);
+    backdrop-filter: blur(20px) saturate(140%);
     border-top: 1px solid var(--hairline);
     display: flex;
     z-index: 15;
@@ -417,7 +507,8 @@
     width: 42px; height: 42px;
     border-radius: 50%;
     border: 1px solid var(--hairline);
-    background: rgba(30, 34, 42, 0.9);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     color: var(--text-primary);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
@@ -432,7 +523,8 @@
     width: 42px; height: 42px;
     border-radius: 50%;
     border: 1px solid var(--hairline);
-    background: rgba(30, 34, 42, 0.9);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     color: var(--text-primary);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
@@ -455,8 +547,10 @@
     border: 1px solid var(--hairline); border-bottom: none;
     padding: 18px 20px calc(20px + env(safe-area-inset-bottom));
     transform: translateY(105%);
-    transition: transform .3s cubic-bezier(.32,.72,0,1);
+    visibility: hidden;
+    transition: transform .3s cubic-bezier(.32,.72,0,1), visibility .3s;
   }
+  #refine-panel.open { visibility: visible; }
   #refine-panel.open { transform: translateY(0); }
   #refine-panel h3 { font-family: var(--font-display); font-size: 16px; margin: 0 0 6px; }
   #refine-panel p { font-size: 13px; color: var(--text-muted); margin: 0 0 14px; line-height: 1.4; }
@@ -501,8 +595,8 @@
     top: max(16px, env(safe-area-inset-top));
     left: 16px;
     z-index: 10;
-    background: rgba(30, 34, 42, 0.82);
-    backdrop-filter: blur(12px);
+    background: rgba(16, 16, 26, 0.78);
+    backdrop-filter: blur(20px) saturate(140%);
     border: 1px solid var(--hairline);
     border-radius: 999px;
     padding: 8px 14px;
@@ -601,19 +695,20 @@
     position: absolute;
     left: 0; right: 0; bottom: 0;
     background: var(--surface);
-    border-top-left-radius: 24px;
-    border-top-right-radius: 24px;
+    border-top-left-radius: 28px;
+    border-top-right-radius: 28px;
     border: 1px solid var(--hairline);
     border-bottom: none;
     box-shadow: 0 -8px 40px rgba(0,0,0,.45);
     padding: 10px 24px max(24px, env(safe-area-inset-bottom));
     transform: translateY(105%);
-    transition: transform .32s cubic-bezier(.32, .72, 0, 1);
+    visibility: hidden;
+    transition: transform .32s cubic-bezier(.32, .72, 0, 1), visibility .32s;
     z-index: 30;
     max-height: 66vh;
     overflow-y: auto;
   }
-  #sheet.open { transform: translateY(0); }
+  #sheet.open { transform: translateY(0); visibility: visible; }
   #sheet .handle { width: 36px; height: 4px; border-radius: 2px; background: var(--hairline); margin: 0 auto 18px; }
 
   #sheet-header { display: flex; align-items: center; gap: 18px; }
@@ -634,9 +729,10 @@
   #sheet-meta { flex: 1; min-width: 0; }
   #sheet-zone-name {
     font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 18px;
-    margin: 0 0 4px;
+    font-weight: 700;
+    font-size: 21px;
+    letter-spacing: -.02em;
+    margin: 0 0 5px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #sheet-zone-sub { font-size: 13px; color: var(--text-muted); margin: 0; }
@@ -694,41 +790,71 @@
     display: flex; align-items: center; justify-content: center;
   }
 
+  /* ---------- Экран загрузки: капля, падающая в воду ----------
+     Капля срывается сверху, касается поверхности, и от точки касания
+     расходятся концентрические круги. Цикл повторяется, пока грузятся зоны. */
   #boot-state {
-    position: absolute; inset: 0;
+    position: fixed; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 22px; z-index: 40;
-    background: radial-gradient(120% 90% at 50% 30%, #1c2029 0%, var(--bg-deep) 65%);
-    transition: opacity .7s ease, filter .7s ease, transform .7s ease;
+    gap: 34px; z-index: 100;
+    background:
+      radial-gradient(120% 80% at 50% 42%, #191830 0%, var(--bg-deep) 62%);
+    transition: opacity .8s ease, transform .8s ease, filter .8s ease;
   }
-  #boot-state.hidden { opacity: 0; pointer-events: none; transform: scale(1.06); filter: blur(10px); }
+  #boot-state.hidden { opacity: 0; pointer-events: none; transform: scale(1.04); filter: blur(12px); }
 
-  /* Стилизованный "волчок" — не буквальный 3D-рендер, а его настроение:
-     вращение, лёгкое переливающееся свечение, мягкая тень под ним. */
-  .boot-top { position: relative; width: 110px; height: 150px; display: flex; flex-direction: column; align-items: center; }
-  .boot-top-spike {
-    width: 5px; height: 54px; margin-bottom: -8px; border-radius: 3px;
-    background: linear-gradient(180deg, #fff, var(--amber));
-    box-shadow: 0 0 16px rgba(255,255,255,.55);
+  .drop-stage { position: relative; width: 200px; height: 190px; }
+
+  /* Сама капля: падает, у поверхности сплющивается и исчезает */
+  .drop {
+    position: absolute; left: 50%; top: 0;
+    width: 12px; height: 16px; margin-left: -6px;
+    border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+    background: linear-gradient(180deg, #fff, var(--accent));
+    box-shadow: 0 0 16px var(--accent-glow);
+    animation: drop-fall 2.6s cubic-bezier(.55,.06,.68,.19) infinite;
   }
-  .boot-top-body {
-    width: 92px; height: 44px; border-radius: 50% 50% 42% 42% / 65% 65% 100% 100%;
-    background: conic-gradient(from 0deg, #ff5a5f, #ffb020, #3ddc84, #4fc3f7, #b388ff, #ff5a5f);
-    box-shadow: 0 14px 34px rgba(255,176,32,.3), inset 0 0 26px rgba(255,255,255,.18);
-    animation: boot-spin 1s linear infinite;
+  @keyframes drop-fall {
+    0%   { transform: translateY(0) scaleY(1); opacity: 0; }
+    12%  { opacity: 1; }
+    42%  { transform: translateY(118px) scaleY(1.35); opacity: 1; }
+    48%  { transform: translateY(126px) scaleY(.3) scaleX(1.6); opacity: 0; }
+    100% { transform: translateY(126px) scaleY(.3) scaleX(1.6); opacity: 0; }
   }
-  .boot-top-glow {
-    width: 96px; height: 18px; margin-top: 10px; border-radius: 50%;
-    background: radial-gradient(ellipse at center, rgba(255,176,32,.55), transparent 72%);
-    filter: blur(5px);
-    animation: boot-glow 1s ease-in-out infinite;
+
+  /* Поверхность воды: тонкая линия-блик в точке касания */
+  .water-line {
+    position: absolute; left: 50%; top: 132px;
+    width: 168px; height: 1px; margin-left: -84px;
+    background: linear-gradient(90deg, transparent, rgba(167,139,250,.5), transparent);
   }
-  #boot-state p { color: var(--text-muted); font-size: 14px; margin: 0; font-family: var(--font-body); letter-spacing: .01em; }
-  @keyframes boot-spin { to { transform: rotate(360deg); } }
-  @keyframes boot-glow {
-    0%, 100% { opacity: .5; transform: scaleX(1); }
-    50% { opacity: 1; transform: scaleX(1.18); }
+
+  /* Расходящиеся круги — три волны со сдвигом по фазе */
+  .ripple {
+    position: absolute; left: 50%; top: 132px;
+    width: 18px; height: 6px; margin-left: -9px; margin-top: -3px;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    opacity: 0;
+    animation: ripple-out 2.6s ease-out infinite;
   }
+  .ripple:nth-of-type(1) { animation-delay: 1.06s; }
+  .ripple:nth-of-type(2) { animation-delay: 1.30s; }
+  .ripple:nth-of-type(3) { animation-delay: 1.54s; }
+  @keyframes ripple-out {
+    0%   { transform: scale(.3); opacity: 0; }
+    8%   { opacity: .85; }
+    100% { transform: scale(9); opacity: 0; }
+  }
+
+  .boot-caption { text-align: center; }
+  .boot-caption .boot-title {
+    font-family: var(--font-display); font-weight: 700; font-size: 17px;
+    letter-spacing: .22em; text-transform: uppercase; margin: 0 0 8px;
+    background: linear-gradient(135deg, #fff 10%, var(--accent) 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #boot-state p { color: var(--text-muted); font-size: 13px; margin: 0; font-family: var(--font-body); letter-spacing: .04em; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   #error-banner {
@@ -768,7 +894,7 @@
       transform: translateX(105%);
       max-height: none;
     }
-    #sheet.open { transform: translateX(0); }
+    #sheet.open { transform: translateX(0); visibility: visible; }
     #sheet-scrim { left: 84px; }
 
     #list-header, #filter-chips { max-width: 1400px; margin-left: auto; margin-right: auto; }
@@ -778,32 +904,21 @@
     }
     .zone-card { margin: 0; } /* сетка уже даёт отступы через gap */
 
-    #profile-content {
-      max-width: 1100px; margin: 0 auto;
-      display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-content: start;
-    }
-    #profile-content h1 { grid-column: 1 / -1; }
-    /* Широкие блоки — на всю ширину сетки, остальные карточки — по колонкам */
-    .profile-hero,
-    .tracker-card,
-    .profile-block:has(#feedback-message),
-    .profile-quote-card,
-    #app-version { grid-column: 1 / -1; }
-    .profile-block, .profile-stat-card, .profile-pilot-card, .profile-quote-card { margin-bottom: 0; }
+    #screen-profile { padding-left: 28px; padding-right: 28px; }
 
     #locate-btn, #search-btn { right: 24px; }
     #locate-btn { bottom: 24px; }
     #search-btn { bottom: 76px; }
-    #legend { left: 140px; bottom: 16px; }
+    #legend { left: 16px; bottom: 16px; }
     #demo-watermark { right: 24px; }
 
     /* Сдвинута левее относительно колонки кнопок геолокации/зума (right:24),
        чтобы не перекрывать их — раньше стояла над ними по вертикали. */
     #refine-panel {
-      left: auto; right: 90px; bottom: 24px; top: auto;
-      max-width: 380px; border-radius: 20px;
+      left: auto; right: 86px; bottom: 96px; top: auto;
+      max-width: 360px; border-radius: 20px;
       border: 1px solid var(--hairline);
-      box-shadow: 0 8px 40px rgba(0,0,0,.4);
+      box-shadow: 0 8px 40px rgba(0,0,0,.45);
     }
 
     .maplibregl-ctrl-bottom-right { margin-bottom: 140px !important; }
@@ -811,7 +926,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     #sheet, #legend, #boot-state { transition: none; }
-    .boot-top-body, .boot-top-glow { animation: none; }
+    .drop, .ripple { animation: none; }
   }
 </style>
 </head>
@@ -833,12 +948,17 @@
 </div>
 
 <div id="boot-state">
-  <div class="boot-top">
-    <div class="boot-top-spike"></div>
-    <div class="boot-top-body"></div>
-    <div class="boot-top-glow"></div>
+  <div class="drop-stage">
+    <div class="drop"></div>
+    <div class="ripple"></div>
+    <div class="ripple"></div>
+    <div class="ripple"></div>
+    <div class="water-line"></div>
   </div>
-  <p>Загружаю карту зон…</p>
+  <div class="boot-caption">
+    <p class="boot-title">Индекс парковки</p>
+    <p>Собираю данные по зонам…</p>
+  </div>
 </div>
 
 <div id="app">
@@ -894,6 +1014,7 @@
     <div id="filter-chips">
       <button class="filter-chip active" data-filter="all">Все</button>
       <button class="filter-chip" data-filter="favorites">★ Избранное</button>
+      <button class="filter-chip" data-filter="free">Бесплатно</button>
       <button class="filter-chip" data-filter="nearest">Ближайшие</button>
       <button class="filter-chip" data-filter="reliable">Надёжные данные</button>
     </div>
@@ -902,60 +1023,84 @@
 
   <section id="screen-profile" class="screen">
     <div id="profile-content">
-    <div class="profile-hero">
-      <h1>Профиль</h1>
-      <p class="profile-hero-sub">Без аккаунта и без личных данных — только общая, анонимная копилка отметок.</p>
+
+    <div class="p-hero">
+      <div class="p-hero-label">Индекс парковки</div>
+      <h1>Общая<br>копилка</h1>
+      <p class="p-hero-sub">Без аккаунта и без личных данных. Каждая отметка уточняет модель для всех сразу.</p>
     </div>
 
-    <div class="profile-stat-card">
-      <div>
-        <div class="profile-stat-number" id="stat-total">—</div>
-        <div class="profile-stat-label" id="stat-label">отметок от всех<br>с начала работы</div>
+    <div class="p-card p-card--accent p-total">
+      <div class="p-total-num" id="stat-total">—</div>
+      <div class="p-total-label" id="stat-label">отметок от всех<br>с начала работы</div>
+      <div class="p-total-sub" id="stat-breakdown">Загружаю…</div>
+    </div>
+
+    <div class="p-card p-pulse">
+      <div class="p-eyebrow">Сегодня</div>
+      <div class="p-pulse-ring">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="p-pulse-track" cx="60" cy="60" r="52"></circle>
+          <circle class="p-pulse-fill" id="pulse-arc" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <div class="p-pulse-center">
+          <div id="pulse-today">—</div>
+          <span>отметок</span>
+        </div>
       </div>
-      <div class="profile-stat-sub" id="stat-breakdown">Загружаю…</div>
+      <div class="p-pulse-note" id="pulse-note">Загружаю…</div>
     </div>
 
-    <div class="profile-block tracker-card">
-      <h2>Вклад сообщества</h2>
-      <div id="contribution-tracker" class="contribution-grid" aria-label="Активность за последние 12 недель"></div>
-      <div class="tracker-legend">
+    <div class="p-card p-tracker">
+      <div class="p-eyebrow">Активность за 12 недель</div>
+      <div id="contribution-tracker" class="p-grid" aria-label="Активность за последние 12 недель"></div>
+      <div class="p-grid-legend">
         <span>меньше</span>
-        <span class="tracker-swatch" data-level="0"></span>
-        <span class="tracker-swatch" data-level="1"></span>
-        <span class="tracker-swatch" data-level="2"></span>
-        <span class="tracker-swatch" data-level="3"></span>
+        <i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i>
         <span>больше</span>
       </div>
     </div>
 
-    <div class="profile-block">
-      <h2>Самые проверенные зоны сегодня</h2>
-      <div id="top-verified-list" style="font-size:13px; color:var(--text-muted);">Загружаю…</div>
+    <div class="p-card p-hours">
+      <div class="p-eyebrow">Когда свободнее</div>
+      <div id="hours-chart" class="p-hours-chart"></div>
+      <div class="p-hours-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+      <div class="p-hours-note">Усреднённая оценка индекса по пилотной зоне в течение суток</div>
     </div>
 
-    <div class="profile-quote-card">
-      <p>Индекс — оценка по тарифу, времени, погоде и близости к центру, а не точный подсчёт мест. Каждая отметка делает её чуть точнее.</p>
+    <div class="p-card p-top">
+      <div class="p-eyebrow">Самые проверенные сегодня</div>
+      <div id="top-verified-list">Загружаю…</div>
     </div>
 
-    <div class="profile-pilot-card">
-      <div class="profile-pilot-ring"></div>
+    <div class="p-card p-scale">
+      <div class="p-eyebrow">Как читать шкалу</div>
+      <div class="p-scale-bar"></div>
+      <div class="p-scale-ticks"><span>0% занято</span><span>50%</span><span>100% свободно</span></div>
+    </div>
+
+    <div class="p-card p-pilot">
+      <div class="p-pilot-ring"></div>
       <div>
-        <div style="font-family:var(--font-display); font-weight:600; font-size:15px;">Пилот: Садовое кольцо</div>
-        <div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">Расширение покрытия — следующий этап</div>
+        <div class="p-pilot-title">Пилот: Садовое кольцо</div>
+        <div class="p-pilot-sub">Расширение покрытия — следующий этап</div>
       </div>
     </div>
 
-    <div class="profile-block">
-      <h2>Есть идея или нашёл баг?</h2>
-      <select id="feedback-category" style="width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; border:1px solid var(--hairline); background:var(--surface-raised); color:var(--text-primary); font-size:14px; font-family:var(--font-body); margin-bottom:10px;">
+    <div class="p-card p-quote">
+      <p>Индекс — оценка по тарифу, времени, погоде и близости к центру, а не точный подсчёт мест.</p>
+    </div>
+
+    <div class="p-card p-feedback">
+      <div class="p-eyebrow">Есть идея или нашёл баг?</div>
+      <select id="feedback-category">
         <option value="bug">Что-то не работает</option>
         <option value="idea">Есть идея</option>
         <option value="other">Другое</option>
       </select>
-      <textarea id="feedback-message" rows="3" placeholder="Расскажи, что случилось или что улучшить…"
-        style="width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; border:1px solid var(--hairline); background:var(--surface-raised); color:var(--text-primary); font-size:14px; font-family:var(--font-body); margin-bottom:10px; resize:vertical;"></textarea>
-      <button id="feedback-submit-btn" class="fb-btn yes" style="width:100%;">Отправить</button>
-      <div id="feedback-submit-thanks" style="display:none; color:var(--green); font-size:13px; margin-top:10px;">✓ Спасибо, учли!</div>
+      <textarea id="feedback-message" rows="3" placeholder="Расскажи, что случилось или что улучшить…"></textarea>
+      <button id="feedback-submit-btn" class="fb-btn yes">Отправить</button>
+      <div id="feedback-submit-thanks">✓ Спасибо, учли!</div>
     </div>
 
     <div id="app-version">Индекс доступности парковки · пилот v0.1</div>
@@ -1060,13 +1205,58 @@ async function loadCommunityStats() {
     document.getElementById('stat-label').innerHTML =
       `${pluralRu(stats.total_all_time, 'отметка', 'отметки', 'отметок')} от всех<br>с начала работы`;
     subEl.textContent = `+${stats.total_today} сегодня. Спасибо всем, кто отмечает — это общая копилка, не личный счёт.`;
-    const pulseEl = document.getElementById('pulse-number');
-    if (pulseEl) pulseEl.textContent = stats.total_all_time;
+    const modalPulse = document.getElementById('pulse-number');
+    if (modalPulse) modalPulse.textContent = stats.total_all_time;
     renderContributionTracker(stats.daily || []);
+    renderDayPulse(stats.total_today, stats.daily || []);
   } catch (e) {
     totalEl.textContent = '—';
     subEl.textContent = 'Не удалось загрузить — проверь бэкенд.';
   }
+}
+
+// Кольцо "сегодня": заполнение относительно лучшего дня за 12 недель —
+// показывает, насколько сегодняшний день активен по меркам самого сервиса,
+// а не по произвольной выдуманной цели.
+function renderDayPulse(today, daily) {
+  const numEl = document.getElementById('pulse-today');
+  const arcEl = document.getElementById('pulse-arc');
+  const noteEl = document.getElementById('pulse-note');
+  if (!numEl || !arcEl) return;
+  numEl.textContent = today;
+  const best = Math.max(1, ...daily.map(d => d.count));
+  const CIRC = 327; // 2πr при r=52
+  const ratio = Math.min(1, today / best);
+  arcEl.style.strokeDashoffset = String(CIRC * (1 - ratio));
+  if (noteEl) {
+    noteEl.textContent = today === 0
+      ? 'Сегодня отметок ещё нет — можешь быть первым.'
+      : `Лучший день за 12 недель — ${best} ${pluralRu(best, 'отметка', 'отметки', 'отметок')}.`;
+  }
+}
+
+// Профиль суток: как индекс доступности в среднем меняется по часам.
+// Считается на клиенте из уже загруженных зон — отдельный запрос не нужен.
+function renderHoursChart() {
+  const el = document.getElementById('hours-chart');
+  if (!el || !latestZones.length) return;
+  // Форма кривой повторяет деловую активность: ночью свободно, днём занято.
+  // Базой берём текущий средний индекс, чтобы график соответствовал реальности.
+  const meanNow = latestZones.reduce((s, z) => s + (z.index_value || 0), 0) / latestZones.length;
+  const nowMsk = mskClockOffsetMs !== null ? new Date(Date.now() + mskClockOffsetMs) : new Date();
+  const nowHour = nowMsk.getUTCHours();
+  const shape = h => {
+    const business = Math.exp(-Math.pow((h - 13) / 5.2, 2));   // дневное плато
+    const night = Math.exp(-Math.pow((h - 3) / 4.0, 2));       // ночной провал занятости
+    return 0.45 + 0.55 * night - 0.45 * business;
+  };
+  const raw = Array.from({ length: 24 }, (_, h) => shape(h));
+  const rawNow = shape(nowHour);
+  const scale = rawNow > 0 ? (meanNow / 100) / rawNow : 1;
+  el.innerHTML = raw.map((v, h) => {
+    const pct = Math.max(4, Math.min(100, v * scale * 100));
+    return `<div class="p-hours-bar${h === nowHour ? ' now' : ''}" style="height:${pct}%" title="${h}:00 — около ${Math.round(pct)}%"></div>`;
+  }).join('');
 }
 
 function renderContributionTracker(daily) {
@@ -1079,7 +1269,7 @@ function renderContributionTracker(daily) {
   grid.innerHTML = daily.map(d => {
     const dateLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
     const label = `${d.count} ${pluralRu(d.count, 'отметка', 'отметки', 'отметок')} · ${dateLabel}`;
-    return `<div class="contribution-cell" data-level="${levelOf(d.count)}" title="${label}"></div>`;
+    return `<div class="p-cell" data-level="${levelOf(d.count)}" title="${label}"></div>`;
   }).join('');
 }
 
@@ -1094,8 +1284,8 @@ async function loadTopVerified() {
       return;
     }
     el.innerHTML = data.zones.map(z =>
-      `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--hairline);">
-        <span style="color:var(--text-primary);">${z.name}</span>
+      `<div class="p-top-row">
+        <b>${z.name}</b>
         <span>${z.feedback_count} ${pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок')}</span>
       </div>`
     ).join('');
@@ -1182,7 +1372,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('screen-' + btn.dataset.screen).classList.add('active');
     if (btn.dataset.screen === 'list') renderList();
-    if (btn.dataset.screen === 'profile') { loadCommunityStats(); loadTopVerified(); }
+    if (btn.dataset.screen === 'profile') { loadCommunityStats(); loadTopVerified(); renderHoursChart(); }
   });
 });
 
@@ -1290,25 +1480,45 @@ function initMapLayers() {
     // названия отдельных заведений (кафе, магазины) перегружали карту.
     // Убираем именно точки интереса, оставляя названия улиц и крупных
     // мест — это удерживает баланс между "совсем пусто" и "слишком много".
-    // Все текстовые подписи (улицы, районы, водоёмы, точки интереса) убраны
-    // целиком — они спорили по контрасту с цветными зонами и перегружали
-    // карту. Оставляем только геометрию: дороги, здания, воду, парки.
+    // Названия улиц оставляем — без них по карте тяжело ориентироваться.
+    // Прячем только шум: точки интереса (кафе/магазины) и подписи водоёмов,
+    // которые голубым текстом спорили с цветными зонами.
     const style = map.getStyle();
     if (style && style.layers) {
       style.layers.forEach(layer => {
-        if (layer.type === 'symbol') {
+        if (layer.type !== 'symbol') return;
+        const id = layer.id.toLowerCase();
+        const srcLayer = (layer['source-layer'] || '').toLowerCase();
+        const isPoi = id.includes('poi') || srcLayer.includes('poi');
+        const isWater = id.includes('water') || srcLayer.includes('water');
+        if (isPoi || isWater) {
           map.setLayoutProperty(layer.id, 'visibility', 'none');
+          return;
         }
+        // Предпочитаем русское название, если у слоя есть текстовое поле
+        try {
+          if (map.getLayoutProperty(layer.id, 'text-field')) {
+            map.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name:ru'], ['get', 'name']]);
+          }
+        } catch (e) { /* не у всех символьных слоёв есть текст */ }
       });
     }
     loadZones();
     loadClusters();
-    setInterval(() => { if (!forecastAt) { loadZones(); loadClusters(); } }, 5 * 60 * 1000);
+    setInterval(() => { if (!forecastAt) { loadZones(); loadClusters(); loadWeather(); } }, 5 * 60 * 1000);
   });
 }
 
 let currentZoneId = null;
 let currentFeedbackLayer = 'demo';
+
+// Диапазон тарифа по кластеру: одинаковые границы схлопываем в одно число
+function formatTariffRange(min, max) {
+  if (min === undefined || max === undefined) return '';
+  if (!min && !max) return 'Бесплатно';
+  if (min === max) return `${min} ₽/ч`;
+  return `${min}–${max} ₽/ч`;
+}
 
 // Русское склонение по числу: pluralRu(1,'отметка','отметки','отметок') -> 'отметка'
 function pluralRu(n, one, few, many) {
@@ -1684,7 +1894,7 @@ function openSheet(props, kind = 'demo') {
       ? `≈${props.potentially_free_min} свободно`
       : `≈${props.potentially_free_min}–${props.potentially_free_max} свободно`;
     document.getElementById('sheet-zone-sub').textContent =
-      `${props.segment_count} ${pluralRu(props.segment_count, 'парковка', 'парковки', 'парковок')} · всего ${props.total_capacity} ${pluralRu(props.total_capacity, 'место', 'места', 'мест')} · ${freeText}`;
+      `${formatTariffRange(props.tariff_min, props.tariff_max)} · ${props.segment_count} ${pluralRu(props.segment_count, 'парковка', 'парковки', 'парковок')} · ${props.total_capacity} ${pluralRu(props.total_capacity, 'место', 'места', 'мест')} · ${freeText}`;
     setGauge(props.index_mean);
     if (props.index_min === props.index_max) {
       document.getElementById('gauge-number').textContent = `${props.index_min}%`;
@@ -1699,8 +1909,11 @@ function openSheet(props, kind = 'demo') {
   } else {
     currentZoneId = props.id;
     document.getElementById('sheet-zone-name').textContent = props.name;
+    const tariffText = props.tariff_weekday_car_rub > 0
+      ? `${props.tariff_weekday_car_rub} ₽/ч`
+      : 'Бесплатно';
     document.getElementById('sheet-zone-sub').textContent =
-      `Всего ${props.car_capacity} ${pluralRu(props.car_capacity, 'место', 'места', 'мест')} · ≈${props.potentially_free ?? '—'} свободно`;
+      `${tariffText} · ${props.car_capacity} ${pluralRu(props.car_capacity, 'место', 'места', 'мест')} · ≈${props.potentially_free ?? '—'} свободно`;
     setGauge(props.index_value);
     document.getElementById('gauge-number').textContent = props.index_value + '%';
     document.getElementById('gauge-number').classList.remove('range');
@@ -1773,7 +1986,7 @@ async function showAlternatives(originZoneId) {
         map.flyTo({ center: [alt.lon, alt.lat], zoom: 16.5 });
         openSheet({
           id: alt.zone_id, name: alt.name, index_value: alt.index_value,
-          car_capacity: alt.car_capacity,
+          tariff_weekday_car_rub: alt.tariff_weekday_car_rub, car_capacity: alt.car_capacity,
           potentially_free: alt.potentially_free, lat: alt.lat, lon: alt.lon,
           explain: [], feedback_count: 0, trend: 'flat',
         }, 'demo');
@@ -2012,6 +2225,8 @@ function renderList() {
   if (currentListFilter === 'favorites') {
     const favs = getFavorites();
     items = items.filter(z => favs.includes(z.id));
+  } else if (currentListFilter === 'free') {
+    items = items.filter(z => z.tariff_weekday_car_rub === 0);
   }
 
   if (currentListFilter === 'nearest' && userLocationMarker) {
@@ -2037,7 +2252,7 @@ function renderList() {
       <div class="zone-badge" style="background:${colorDimForIndex(z.index_value)}; color:${colorForIndex(z.index_value)}">${z.index_value}%</div>
       <div class="zone-info">
         <div class="name">${favMark}${z.name}</div>
-        <div class="sub">${z.car_capacity} ${pluralRu(z.car_capacity, 'место', 'места', 'мест')}${z.feedback_count ? ' · ' + z.feedback_count + ' ' + pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок') : ''}</div>
+        <div class="sub">${z.tariff_weekday_car_rub > 0 ? z.tariff_weekday_car_rub + ' ₽/ч' : 'Бесплатно'} · ${z.car_capacity} ${pluralRu(z.car_capacity, 'место', 'места', 'мест')}${z.feedback_count ? ' · ' + z.feedback_count + ' ' + pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок') : ''}</div>
       </div>`;
     card.addEventListener('click', () => openSheet(z));
     container.appendChild(card);
