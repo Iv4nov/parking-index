@@ -142,6 +142,33 @@
   #legend .row { display: flex; align-items: center; gap: 8px; }
   #legend .swatch { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
+  /* ---- Избранные зоны сейчас — полоса поверх карты, только если что-то в избранном ---- */
+  #favorites-strip {
+    position: absolute;
+    right: 16px;
+    bottom: calc(64px + env(safe-area-inset-bottom) + 16px);
+    max-width: min(280px, calc(100vw - 200px));
+    z-index: 10;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #favorites-strip.show { display: flex; }
+  .fav-chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: rgba(16, 16, 26, 0.85);
+    backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 8px 8px 8px 14px;
+    font-size: 12.5px; color: var(--text-primary);
+    cursor: pointer;
+  }
+  .fav-chip b {
+    font-variant-numeric: tabular-nums; font-weight: 700; font-size: 12.5px;
+    color: #0A0A12; padding: 3px 9px; border-radius: 999px; flex-shrink: 0;
+  }
+
   /* ============ Переключатель слоёв (Зоны / DEMO) ============ */
   #layer-toggle {
     position: absolute;
@@ -590,6 +617,14 @@
   }
   #distance-to-user { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
 
+  #trust-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; letter-spacing: .02em;
+    padding: 3px 9px; border-radius: 999px; margin-top: 8px;
+  }
+  #trust-badge.confirmed { color: var(--green); background: rgba(61,220,132,.12); }
+  #trust-badge.estimated { color: var(--text-muted); background: rgba(255,255,255,.06); }
+
   #weather-pill {
     position: absolute;
     top: max(16px, env(safe-area-inset-top));
@@ -1020,6 +1055,7 @@
       <div class="row"><span class="swatch" style="background:#FFB020"></span>Средняя</div>
       <div class="row"><span class="swatch" style="background:#FF5A5F"></span>Низкая</div>
     </div>
+    <div id="favorites-strip"></div>
   </section>
 
   <section id="screen-list" class="screen">
@@ -1043,6 +1079,7 @@
       <div class="p-hero-label">Индекс парковки</div>
       <h1>Общая<br>копилка</h1>
       <p class="p-hero-sub">Без аккаунта и без личных данных. Каждая отметка уточняет модель для всех сразу.</p>
+      <button id="share-district-btn" class="action-btn" style="margin-top:14px; width:auto; padding:11px 20px;">↗ Поделиться статусом кольца</button>
     </div>
 
     <div class="p-card p-card--accent p-total">
@@ -1162,6 +1199,7 @@
       <div id="sheet-label">Индекс доступности</div>
       <p id="sheet-zone-name">—</p>
       <p id="sheet-zone-sub">—</p>
+      <div id="trust-badge"></div>
       <div id="sheet-extra-meta"></div>
       <div id="explain-block"></div>
     </div>
@@ -1172,6 +1210,7 @@
   <div id="distance-to-user"></div>
   <div id="action-row">
     <button class="action-btn" id="route-btn">🧭 Маршрут</button>
+    <button class="action-btn" id="share-btn">↗ Поделиться</button>
     <button class="action-btn" id="report-btn">⚠ Сообщить о проблеме</button>
   </div>
 
@@ -1345,7 +1384,33 @@ function toggleFavorite(zoneId) {
   const idx = favs.indexOf(zoneId);
   if (idx === -1) favs.push(zoneId); else favs.splice(idx, 1);
   localStorage.setItem("favorites", JSON.stringify(favs));
+  renderFavoritesStrip();
   return favs.includes(zoneId);
+}
+
+// Полоса "избранное сейчас" на карте — только реально сохранённые зоны,
+// с живым процентом, без повторного похода в список зон.
+function renderFavoritesStrip() {
+  const strip = document.getElementById('favorites-strip');
+  if (!strip) return;
+  const favs = getFavorites();
+  const items = latestZones.filter(z => favs.includes(z.id));
+  if (!items.length) { strip.classList.remove('show'); strip.innerHTML = ''; return; }
+  strip.innerHTML = items.slice(0, 3).map(z => `
+    <div class="fav-chip" data-zone="${z.id}">
+      <span>★ ${z.name}</span>
+      <b style="background:${colorForIndex(z.index_value)}">${z.index_value}%</b>
+    </div>`).join('');
+  strip.classList.add('show');
+  strip.querySelectorAll('.fav-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const z = items.find(i => i.id === chip.dataset.zone);
+      if (!z) return;
+      document.querySelector('.layer-btn[data-layer="demo"]').click();
+      map.flyTo({ center: [z.lon, z.lat], zoom: 16.5 });
+      openSheet(z, 'demo');
+    });
+  });
 }
 
 const GAUGE_CIRCUMFERENCE = 264; // 2 * PI * 42, соответствует radius=42 в SVG
@@ -1514,10 +1579,23 @@ function initMapLayers() {
         } catch (e) { /* не у всех символьных слоёв есть текст */ }
       });
     }
-    loadZones();
+    loadZones().then(openZoneFromUrl);
     loadClusters();
     setInterval(() => { if (!forecastAt) { loadZones(); loadClusters(); loadWeather(); } }, 5 * 60 * 1000);
   });
+}
+
+// ---------- Диплинк из шер-ссылки: /?zone=<id> открывает конкретную зону сразу ----------
+function openZoneFromUrl() {
+  const zoneId = new URLSearchParams(location.search).get('zone');
+  if (!zoneId || !latestGeojson) return;
+  const feature = latestGeojson.features.find(f => f.properties.id === zoneId);
+  if (!feature) return;
+  document.querySelector('.layer-btn[data-layer="demo"]').click(); // сама зона живёт в DEMO-слое
+  const [lon, lat] = feature.geometry.coordinates[0][Math.floor(feature.geometry.coordinates[0].length / 2)];
+  map.flyTo({ center: [lon, lat], zoom: 16.5 });
+  openSheet(feature.properties, 'demo');
+  history.replaceState(null, '', location.pathname); // чтобы обновление страницы не открывало её снова
 }
 
 let currentZoneId = null;
@@ -1865,6 +1943,43 @@ document.getElementById('route-btn').addEventListener('click', () => {
   window.open(`https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`, '_blank');
 });
 
+document.getElementById('share-btn').addEventListener('click', async () => {
+  if (!currentZoneId) return;
+  const url = `${location.origin}/api/share/${currentZoneId}`;
+  const nameEl = document.getElementById('sheet-zone-name');
+  const text = `${nameEl ? nameEl.textContent : 'Зона'} — индекс парковки`;
+  if (navigator.share) {
+    try { await navigator.share({ title: text, url }); } catch (e) { /* пользователь отменил — не ошибка */ }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    const btn = document.getElementById('share-btn');
+    const original = btn.textContent;
+    btn.textContent = '✓ Ссылка скопирована';
+    setTimeout(() => { btn.textContent = original; }, 1800);
+  } catch (e) {
+    prompt('Скопируй ссылку:', url);
+  }
+});
+
+document.getElementById('share-district-btn').addEventListener('click', async () => {
+  const url = `${location.origin}/api/share`;
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Садовое кольцо сейчас — Индекс парковки', url }); } catch (e) {}
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    const btn = document.getElementById('share-district-btn');
+    const original = btn.textContent;
+    btn.textContent = '✓ Ссылка скопирована';
+    setTimeout(() => { btn.textContent = original; }, 1800);
+  } catch (e) {
+    prompt('Скопируй ссылку:', url);
+  }
+});
+
 document.getElementById('report-btn').addEventListener('click', async () => {
   if (!currentZoneId) return;
   const reason = prompt('Что не так с этой зоной? (например: закрыта, снесена, неверное расположение)');
@@ -1950,6 +2065,7 @@ function openSheet(props, kind = 'demo') {
   renderExtraMeta(props);
   renderExplainChips(props.explain);
   refreshFavButton();
+  renderTrustBadge(props.feedback_count || 0, kind);
 
   const lat = kind === 'cluster' ? props.centroid_lat : props.lat;
   const lon = kind === 'cluster' ? props.centroid_lon : props.lon;
@@ -1958,15 +2074,28 @@ function openSheet(props, kind = 'demo') {
 
   if (forecastAt) {
     document.getElementById('feedback-block').style.display = 'none';
+    document.getElementById('share-btn').style.display = 'none'; // прогнозные ссылки не имеют смысла делиться "прямо сейчас"
   } else {
     document.getElementById('feedback-block').style.display = '';
     document.getElementById('feedback-buttons').style.display = 'flex';
     document.getElementById('feedback-thanks').style.display = 'none';
     document.querySelectorAll('.fb-btn').forEach(b => b.classList.remove('chosen'));
+    document.getElementById('share-btn').style.display = '';
   }
 
   document.getElementById('sheet').classList.add('open');
   document.getElementById('sheet-scrim').classList.add('open');
+}
+function renderTrustBadge(count, kind) {
+  const el = document.getElementById('trust-badge');
+  if (!el) return;
+  if (count > 0) {
+    el.textContent = `✓ ${kind === 'cluster' ? 'частично ' : ''}подтверждено ${count} ${pluralRu(count, 'отметкой', 'отметками', 'отметками')}`;
+    el.className = 'confirmed';
+  } else {
+    el.textContent = 'Расчётная оценка — живых отметок пока нет';
+    el.className = 'estimated';
+  }
 }
 function closeSheet() {
   document.getElementById('sheet').classList.remove('open');
@@ -2142,6 +2271,7 @@ async function loadZones() {
   latestGeojson = geojson;
   hideError();
   latestZones = geojson.features.map(f => f.properties);
+  renderFavoritesStrip();
 
   if (map.getSource('zones')) {
     map.getSource('zones').setData(geojson);
