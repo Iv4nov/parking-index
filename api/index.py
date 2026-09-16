@@ -25,6 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response
+from xml.sax.saxutils import escape as xml_escape
 from pydantic import BaseModel
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
@@ -76,6 +78,196 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SITE_URL = "https://parking-index.vercel.app"
+
+
+def _zone_color(idx: int) -> str:
+    if idx >= 66:
+        return "#3DDC84"
+    if idx >= 33:
+        return "#FFB020"
+    return "#FF5A5F"
+
+
+def _share_card_svg(headline: str, big_text: str, big_color: str, sub_lines: list[str]) -> str:
+    """Общий рендер картинки для шеринга — 1200x630 (стандартный размер под
+    og:image), тёмная тема сервиса. Используется и для одной зоны, и для
+    сводки по всему пилоту (district-card)."""
+    sub_svg = "".join(
+        f'<text x="80" y="{430 + i * 46}" font-family="Arial, sans-serif" font-size="26" fill="#8B88A8">{xml_escape(line)}</text>'
+        for i, line in enumerate(sub_lines)
+    )
+    return f'''<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <radialGradient id="bg" cx="28%" cy="18%" r="85%">
+    <stop offset="0%" stop-color="#1c1a30"/>
+    <stop offset="100%" stop-color="#0A0A12"/>
+  </radialGradient>
+</defs>
+<rect width="1200" height="630" fill="url(#bg)"/>
+<text x="80" y="110" font-family="Arial, sans-serif" font-size="22" letter-spacing="5" fill="#A78BFA">{xml_escape(headline)}</text>
+<text x="80" y="330" font-family="Arial, sans-serif" font-weight="800" font-size="200" fill="{big_color}">{xml_escape(big_text)}</text>
+{sub_svg}
+<text x="80" y="580" font-family="Arial, sans-serif" font-size="18" fill="#5c5878">parking-index.vercel.app · без аккаунта, анонимно</text>
+</svg>'''
+
+
+@app.get("/api/share-card/{zone_id}")
+def share_card(zone_id: str):
+    """SVG-картинка для конкретной зоны — то, что видно в превью ссылки
+    в мессенджерах (og:image), см. /api/share/{zone_id}."""
+    with Session(engine) as session:
+        zone = session.get(Zone, zone_id)
+        if not zone:
+            raise HTTPException(404, "zone not found")
+        results = compute_all_indices(session)
+        match = next((r for r in results if r["zone"].id == zone_id), None)
+        idx = match["index"] if match else 0
+        feedback_count = match["feedback_count"] if match else 0
+    trust_line = f"Подтверждено {feedback_count} {'отметкой' if feedback_count == 1 else 'отметками'}" if feedback_count else "Расчётная оценка"
+    svg = _share_card_svg("ИНДЕКС ПАРКОВКИ", f"{idx}%", _zone_color(idx), [zone.name, trust_line])
+    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=180"})
+
+
+@app.get("/api/share/{zone_id}", response_class=HTMLResponse)
+def share_page(zone_id: str):
+    """Промежуточная HTML-страница только ради og:-тегов для превью в
+    мессенджерах — сам SPA не может отдавать разные meta-теги на лету.
+    Тут же редиректит в приложение с открытой нужной зоной."""
+    with Session(engine) as session:
+        zone = session.get(Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "zone not found")
+    title = xml_escape(f"{zone.name} — Индекс парковки")
+    image_url = f"{SITE_URL}/api/share-card/{zone_id}"
+    target = f"{SITE_URL}/?zone={zone_id}"
+    return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>{title}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="Вероятность найти место прямо сейчас — без аккаунта, анонимно.">
+<meta property="og:image" content="{image_url}">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta http-equiv="refresh" content="0; url={target}">
+<script>location.replace({target!r});</script>
+</head><body style="background:#0A0A12;color:#8B88A8;font-family:sans-serif;">Открываю…</body></html>'''
+
+
+@app.get("/api/district-card")
+def district_card():
+    """Сводная картинка по всему пилоту — для шаринга в районные чаты без
+    привязки к конкретной зоне."""
+    with Session(engine) as session:
+        results = compute_all_indices(session)
+    if not results:
+        raise HTTPException(404, "no data")
+    mean_idx = round(sum(r["index"] for r in results) / len(results))
+    best = max(results, key=lambda r: r["index"])
+    worst = min(results, key=lambda r: r["index"])
+    svg = _share_card_svg(
+        "САДОВОЕ КОЛЬЦО СЕЙЧАС", f"{mean_idx}%", _zone_color(mean_idx),
+        [f"Свободнее всего: {best['zone'].name} ({best['index']}%)",
+         f"Плотнее всего: {worst['zone'].name} ({worst['index']}%)"],
+    )
+    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=180"})
+
+
+@app.get("/api/share", response_class=HTMLResponse)
+def share_district_page():
+    title = "Садовое кольцо сейчас — Индекс парковки"
+    image_url = f"{SITE_URL}/api/district-card"
+    return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>{title}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="Вероятность найти место по зонам Садового кольца — без аккаунта, анонимно.">
+<meta property="og:image" content="{image_url}">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta http-equiv="refresh" content="0; url={SITE_URL}/">
+<script>location.replace({SITE_URL + "/"!r});</script>
+</head><body style="background:#0A0A12;color:#8B88A8;font-family:sans-serif;">Открываю…</body></html>'''
+
+
+# ---------- Telegram-бот-зеркало ----------
+# Нужен токен от @BotFather в переменной окружения TELEGRAM_BOT_TOKEN на Vercel,
+# и вебхук, один раз настроенный так (замени <TOKEN>):
+#   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://parking-index.vercel.app/api/telegram-webhook
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+
+def _tg_send(chat_id: int, text: str):
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            timeout=8,
+        )
+    except Exception as e:
+        print(f"[WARN] Telegram sendMessage не удался: {e}")
+
+
+def _nearest_zone_reply(lat: float, lon: float) -> str:
+    with Session(engine) as session:
+        results = compute_all_indices(session)
+    if not results:
+        return "Не нашёл данных — попробуй чуть позже."
+    nearest = min(results, key=lambda r: haversine_m(lat, lon, r["zone"].lat, r["zone"].lon))
+    dist_m = round(haversine_m(lat, lon, nearest["zone"].lat, nearest["zone"].lon))
+    return (
+        f"📍 <b>{nearest['zone'].name}</b>\n"
+        f"Доступность: <b>{nearest['index']}%</b>\n"
+        f"~{dist_m} м от тебя"
+    )
+
+
+def _district_summary_reply() -> str:
+    with Session(engine) as session:
+        results = compute_all_indices(session)
+    if not results:
+        return "Не нашёл данных — попробуй чуть позже."
+    mean_idx = round(sum(r["index"] for r in results) / len(results))
+    best = max(results, key=lambda r: r["index"])
+    worst = min(results, key=lambda r: r["index"])
+    return (
+        f"🅿️ <b>Садовое кольцо сейчас: {mean_idx}%</b>\n\n"
+        f"🟢 Свободнее всего: {best['zone'].name} — {best['index']}%\n"
+        f"🔴 Плотнее всего: {worst['zone'].name} — {worst['index']}%\n\n"
+        f"Пришли геолокацию — подскажу ближайшую зону."
+    )
+
+
+@app.post("/api/telegram-webhook")
+async def telegram_webhook(update: dict):
+    """Вебхук Telegram — без aiogram/python-telegram-bot, чтобы не тащить лишние
+    зависимости в serverless-функцию. Понимает: /start, геолокацию, и любой
+    текст как запрос сводки по кольцу."""
+    message = update.get("message") or update.get("edited_message")
+    if not message:
+        return {"ok": True}
+    chat_id = message["chat"]["id"]
+
+    location = message.get("location")
+    if location:
+        _tg_send(chat_id, _nearest_zone_reply(location["latitude"], location["longitude"]))
+        return {"ok": True}
+
+    text = (message.get("text") or "").strip().lower()
+    if text in ("/start", "/help"):
+        _tg_send(
+            chat_id,
+            "Привет! Я показываю доступность парковки на Садовом кольце в Москве.\n\n"
+            "Напиши что угодно — пришлю сводку по кольцу.\n"
+            "Пришли 📍 геолокацию — подскажу ближайшую свободную зону.\n\n"
+            "Без аккаунта, полностью анонимно.",
+        )
+    else:
+        _tg_send(chat_id, _district_summary_reply())
+    return {"ok": True}
 
 
 class FeedbackIn(BaseModel):
