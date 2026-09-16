@@ -848,6 +848,21 @@
   }
 
   .boot-caption { text-align: center; }
+
+  #boot-tips {
+    position: absolute; left: 50%; bottom: max(48px, env(safe-area-inset-bottom) + 32px);
+    transform: translateX(-50%);
+    width: min(340px, calc(100vw - 56px));
+    text-align: center;
+  }
+  .boot-tip {
+    font-size: 13px; color: var(--text-muted); line-height: 1.55;
+    opacity: 0; transform: translateY(6px);
+    transition: opacity .6s ease, transform .6s ease;
+    position: absolute; left: 0; right: 0;
+  }
+  .boot-tip b { color: var(--text-primary); font-weight: 600; }
+  .boot-tip.show { opacity: 1; transform: translateY(0); position: relative; }
   .boot-caption .boot-title {
     font-family: var(--font-display); font-weight: 700; font-size: 17px;
     letter-spacing: .22em; text-transform: uppercase; margin: 0 0 8px;
@@ -959,6 +974,7 @@
     <p class="boot-title">Индекс парковки</p>
     <p>Собираю данные по зонам…</p>
   </div>
+  <div id="boot-tips"></div>
 </div>
 
 <div id="app">
@@ -1014,7 +1030,6 @@
     <div id="filter-chips">
       <button class="filter-chip active" data-filter="all">Все</button>
       <button class="filter-chip" data-filter="favorites">★ Избранное</button>
-      <button class="filter-chip" data-filter="free">Бесплатно</button>
       <button class="filter-chip" data-filter="nearest">Ближайшие</button>
       <button class="filter-chip" data-filter="reliable">Надёжные данные</button>
     </div>
@@ -1085,10 +1100,6 @@
         <div class="p-pilot-title">Пилот: Садовое кольцо</div>
         <div class="p-pilot-sub">Расширение покрытия — следующий этап</div>
       </div>
-    </div>
-
-    <div class="p-card p-quote">
-      <p>Индекс — оценка по тарифу, времени, погоде и близости к центру, а не точный подсчёт мест.</p>
     </div>
 
     <div class="p-card p-feedback">
@@ -1512,13 +1523,33 @@ function initMapLayers() {
 let currentZoneId = null;
 let currentFeedbackLayer = 'demo';
 
-// Диапазон тарифа по кластеру: одинаковые границы схлопываем в одно число
-function formatTariffRange(min, max) {
-  if (min === undefined || max === undefined) return '';
-  if (!min && !max) return 'Бесплатно';
-  if (min === max) return `${min} ₽/ч`;
-  return `${min}–${max} ₽/ч`;
+// ---------- Подсказки на экране загрузки: мини-инструкция для новых людей ----------
+const BOOT_TIPS = [
+  'Процент — это <b>вероятность найти место</b>, а не число реальных свободных мест: такой открытой статистики просто не существует.',
+  'Модель учитывает <b>тариф, время суток, день недели и погоду</b> — и постоянно уточняется по реальным отметкам людей.',
+  'Здесь <b>нет аккаунта и входа</b> — все отметки анонимны и идут в общую копилку, а не в чей-то личный профиль.',
+  'Нашёл или не нашёл место — <b>отметь это на карте</b>, это и есть главный источник точности.',
+  'Зелёный, жёлтый, красный — это <b>доступность</b>: от «скорее всего найдёшь» до «скорее всего нет».',
+  'Есть режим <b>«Прогноз»</b> — можно посмотреть, как разгружённость зоны меняется в течение дня.',
+];
+let bootTipsTimer = null;
+function startBootTips() {
+  const host = document.getElementById('boot-tips');
+  if (!host) return;
+  let i = 0;
+  const shuffled = BOOT_TIPS.slice().sort(() => Math.random() - 0.5);
+  const show = () => {
+    host.innerHTML = `<p class="boot-tip">${shuffled[i % shuffled.length]}</p>`;
+    requestAnimationFrame(() => host.querySelector('.boot-tip').classList.add('show'));
+    i++;
+  };
+  show();
+  bootTipsTimer = setInterval(show, 3400);
 }
+function stopBootTips() {
+  if (bootTipsTimer) { clearInterval(bootTipsTimer); bootTipsTimer = null; }
+}
+startBootTips();
 
 // Русское склонение по числу: pluralRu(1,'отметка','отметки','отметок') -> 'отметка'
 function pluralRu(n, one, few, many) {
@@ -1894,7 +1925,7 @@ function openSheet(props, kind = 'demo') {
       ? `≈${props.potentially_free_min} свободно`
       : `≈${props.potentially_free_min}–${props.potentially_free_max} свободно`;
     document.getElementById('sheet-zone-sub').textContent =
-      `${formatTariffRange(props.tariff_min, props.tariff_max)} · ${props.segment_count} ${pluralRu(props.segment_count, 'парковка', 'парковки', 'парковок')} · ${props.total_capacity} ${pluralRu(props.total_capacity, 'место', 'места', 'мест')} · ${freeText}`;
+      `${props.segment_count} ${pluralRu(props.segment_count, 'парковка', 'парковки', 'парковок')} · ${props.total_capacity} ${pluralRu(props.total_capacity, 'место', 'места', 'мест')} · ${freeText}`;
     setGauge(props.index_mean);
     if (props.index_min === props.index_max) {
       document.getElementById('gauge-number').textContent = `${props.index_min}%`;
@@ -1909,11 +1940,8 @@ function openSheet(props, kind = 'demo') {
   } else {
     currentZoneId = props.id;
     document.getElementById('sheet-zone-name').textContent = props.name;
-    const tariffText = props.tariff_weekday_car_rub > 0
-      ? `${props.tariff_weekday_car_rub} ₽/ч`
-      : 'Бесплатно';
     document.getElementById('sheet-zone-sub').textContent =
-      `${tariffText} · ${props.car_capacity} ${pluralRu(props.car_capacity, 'место', 'места', 'мест')} · ≈${props.potentially_free ?? '—'} свободно`;
+      `${props.car_capacity} ${pluralRu(props.car_capacity, 'место', 'места', 'мест')} · ≈${props.potentially_free ?? '—'} свободно`;
     setGauge(props.index_value);
     document.getElementById('gauge-number').textContent = props.index_value + '%';
     document.getElementById('gauge-number').classList.remove('range');
@@ -1986,7 +2014,7 @@ async function showAlternatives(originZoneId) {
         map.flyTo({ center: [alt.lon, alt.lat], zoom: 16.5 });
         openSheet({
           id: alt.zone_id, name: alt.name, index_value: alt.index_value,
-          tariff_weekday_car_rub: alt.tariff_weekday_car_rub, car_capacity: alt.car_capacity,
+          car_capacity: alt.car_capacity,
           potentially_free: alt.potentially_free, lat: alt.lat, lon: alt.lon,
           explain: [], feedback_count: 0, trend: 'flat',
         }, 'demo');
@@ -2107,6 +2135,7 @@ async function loadZones() {
     console.error('Не удалось загрузить зоны:', e);
     showError('Не вижу бэкенд на ' + API_BASE + ' — проверь, что uvicorn запущен, и что CORS включён в main.py.');
     document.getElementById('boot-state').classList.add('hidden');
+    stopBootTips();
     return;
   }
 
@@ -2145,6 +2174,7 @@ async function loadZones() {
 
   refreshPills();
   document.getElementById('boot-state').classList.add('hidden');
+    stopBootTips();
 }
 
 async function loadClusters() {
@@ -2225,8 +2255,6 @@ function renderList() {
   if (currentListFilter === 'favorites') {
     const favs = getFavorites();
     items = items.filter(z => favs.includes(z.id));
-  } else if (currentListFilter === 'free') {
-    items = items.filter(z => z.tariff_weekday_car_rub === 0);
   }
 
   if (currentListFilter === 'nearest' && userLocationMarker) {
@@ -2252,7 +2280,7 @@ function renderList() {
       <div class="zone-badge" style="background:${colorDimForIndex(z.index_value)}; color:${colorForIndex(z.index_value)}">${z.index_value}%</div>
       <div class="zone-info">
         <div class="name">${favMark}${z.name}</div>
-        <div class="sub">${z.tariff_weekday_car_rub > 0 ? z.tariff_weekday_car_rub + ' ₽/ч' : 'Бесплатно'} · ${z.car_capacity} ${pluralRu(z.car_capacity, 'место', 'места', 'мест')}${z.feedback_count ? ' · ' + z.feedback_count + ' ' + pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок') : ''}</div>
+        <div class="sub">${z.car_capacity} ${pluralRu(z.car_capacity, 'место', 'места', 'мест')}${z.feedback_count ? ' · ' + z.feedback_count + ' ' + pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок') : ''}</div>
       </div>`;
     card.addEventListener('click', () => openSheet(z));
     container.appendChild(card);
