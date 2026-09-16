@@ -40,9 +40,28 @@
     color: var(--text-primary);
     font-family: var(--font-body);
     overscroll-behavior: none;
+    overflow: hidden;
   }
 
-  #app { position: absolute; inset: 0; }
+  #app { position: absolute; inset: 0; overflow: hidden; }
+
+  /* Висячие строки (короткое слово-огрызок в конце строки) — просим браузер
+     сам подбирать перенос без "сирот"; поддерживается в свежих Chrome/Edge/
+     Safari, в остальных просто игнорируется без вреда. */
+  p, .sub, .profile-stat-sub, #forecast-banner, .disclaimer-card p, .profile-block p {
+    text-wrap: pretty;
+  }
+
+  /* Лёгкая тактильная отдача на нажатие — без вмешательства в логику */
+  .fb-btn, .tab-btn, .layer-btn, .filter-chip, #forecast-toggle, #forecast-apply-btn,
+  #forecast-cancel-btn, #locate-btn, #search-btn, #refine-close-btn {
+    transition: transform .15s ease;
+  }
+  .fb-btn:active, .layer-btn:active, .filter-chip:active, #forecast-toggle:active,
+  #forecast-apply-btn:active, #forecast-cancel-btn:active, #locate-btn:active,
+  #search-btn:active, #refine-close-btn:active {
+    transform: scale(.96);
+  }
 
   .screen {
     position: absolute; inset: 0;
@@ -115,7 +134,7 @@
   /* ============ Переключатель слоёв (Зоны / DEMO) ============ */
   #layer-toggle {
     position: absolute;
-    top: calc(max(16px, env(safe-area-inset-top)) + 52px);
+    top: max(16px, env(safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
@@ -130,7 +149,7 @@
 
   #forecast-toggle {
     position: absolute;
-    top: calc(max(16px, env(safe-area-inset-top)) + 96px);
+    top: calc(max(16px, env(safe-area-inset-top)) + 52px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
@@ -150,7 +169,7 @@
 
   #forecast-panel {
     position: absolute;
-    top: calc(max(16px, env(safe-area-inset-top)) + 138px);
+    top: calc(max(16px, env(safe-area-inset-top)) + 94px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
@@ -169,6 +188,7 @@
   #forecast-panel input {
     flex: 1; background: rgba(255,255,255,.06); border: 1px solid var(--hairline);
     border-radius: 10px; padding: 8px 10px; color: var(--text-primary); font-size: 13px;
+    text-align: center;
   }
   #forecast-panel .actions { display: flex; gap: 8px; }
   #forecast-panel button {
@@ -179,7 +199,7 @@
   #forecast-cancel-btn { background: rgba(255,255,255,.08); color: var(--text-primary); }
   #forecast-banner {
     position: absolute;
-    top: calc(max(16px, env(safe-area-inset-top)) + 96px);
+    top: calc(max(16px, env(safe-area-inset-top)) + 94px);
     left: 50%; transform: translateX(-50%);
     z-index: 9;
     max-width: min(360px, calc(100vw - 32px));
@@ -268,15 +288,43 @@
   .zone-info .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   /* ============ ЭКРАН: ПРОФИЛЬ ============ */
+  .profile-hero { padding: 4px 0 2px; }
+  .profile-hero h1 {
+    font-family: var(--font-display); font-size: 30px; font-weight: 700; margin: 0 0 6px;
+    background: linear-gradient(135deg, #fff 20%, var(--amber) 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .profile-hero-sub { font-size: 13.5px; color: var(--text-muted); margin: 0; }
+
   /* ---- "Твой вклад" — акцентная карточка со статистикой ---- */
   .profile-stat-card {
-    background: linear-gradient(135deg, rgba(255,176,32,0.14), rgba(61,220,132,0.08));
-    border: 1px solid rgba(255,176,32,0.3);
-    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(255,176,32,0.16), rgba(61,220,132,0.08));
+    border: 1px solid rgba(255,176,32,0.32);
+    border-radius: 20px;
     padding: 20px;
     margin-bottom: 14px;
     display: flex; align-items: center; gap: 18px;
+    box-shadow: 0 14px 34px rgba(0,0,0,.28);
   }
+
+  /* ---- Трекер вклада — тепловая карта активности за 12 недель ---- */
+  .tracker-card { padding: 18px 16px; }
+  .contribution-grid {
+    display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 1fr);
+    gap: 3px; overflow-x: auto; padding-bottom: 4px;
+  }
+  .contribution-cell {
+    width: 11px; height: 11px; border-radius: 3px;
+    background: rgba(255,255,255,.06);
+  }
+  .contribution-cell[data-level="1"] { background: rgba(255,176,32,.35); }
+  .contribution-cell[data-level="2"] { background: rgba(255,176,32,.65); }
+  .contribution-cell[data-level="3"] { background: var(--amber); box-shadow: 0 0 8px rgba(255,176,32,.55); }
+  .tracker-legend { display: flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; color: var(--text-muted); }
+  .tracker-swatch { width: 10px; height: 10px; border-radius: 3px; background: rgba(255,255,255,.06); }
+  .tracker-swatch[data-level="1"] { background: rgba(255,176,32,.35); }
+  .tracker-swatch[data-level="2"] { background: rgba(255,176,32,.65); }
+  .tracker-swatch[data-level="3"] { background: var(--amber); }
   .profile-stat-number {
     font-family: var(--font-display); font-weight: 700; font-size: 40px;
     color: var(--amber); line-height: 1; font-variant-numeric: tabular-nums;
@@ -304,8 +352,9 @@
   /* ---- Пилот — карточка с декоративным кольцом ---- */
   .profile-pilot-card {
     display: flex; align-items: center; gap: 16px;
-    background: var(--surface); border: 1px solid var(--hairline); border-radius: 18px;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 20px;
     padding: 18px; margin-bottom: 14px;
+    box-shadow: 0 10px 26px rgba(0,0,0,.22);
   }
   .profile-pilot-ring {
     flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%;
@@ -318,9 +367,10 @@
   .profile-block {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 16px;
+    border-radius: 20px;
     padding: 18px;
     margin-bottom: 14px;
+    box-shadow: 0 10px 26px rgba(0,0,0,.22);
   }
   .profile-block h2 {
     font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
@@ -388,6 +438,10 @@
     cursor: pointer;
   }
   #search-btn svg { width: 19px; height: 19px; }
+
+  /* Встроенный зум-контрол MapLibre по умолчанию тоже садится в bottom-right —
+     поднимаем его выше locate/search, иначе они наслаиваются на +/-. */
+  .maplibregl-ctrl-bottom-right { margin-bottom: 200px !important; }
 
   /* refine-btn убран — поиск теперь всегда доступен через #search-btn,
      отдельная кнопка "уточнить" после ошибки геолокации была лишним дублем. */
@@ -643,17 +697,38 @@
   #boot-state {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 14px; z-index: 40;
-    background: var(--bg-deep);
-    transition: opacity .3s ease;
+    gap: 22px; z-index: 40;
+    background: radial-gradient(120% 90% at 50% 30%, #1c2029 0%, var(--bg-deep) 65%);
+    transition: opacity .7s ease, filter .7s ease, transform .7s ease;
   }
-  #boot-state.hidden { opacity: 0; pointer-events: none; }
-  #boot-state .ring {
-    width: 40px; height: 40px; border-radius: 50%;
-    border: 3px solid var(--hairline); border-top-color: var(--amber);
-    animation: spin 0.9s linear infinite;
+  #boot-state.hidden { opacity: 0; pointer-events: none; transform: scale(1.06); filter: blur(10px); }
+
+  /* Стилизованный "волчок" — не буквальный 3D-рендер, а его настроение:
+     вращение, лёгкое переливающееся свечение, мягкая тень под ним. */
+  .boot-top { position: relative; width: 110px; height: 150px; display: flex; flex-direction: column; align-items: center; }
+  .boot-top-spike {
+    width: 5px; height: 54px; margin-bottom: -8px; border-radius: 3px;
+    background: linear-gradient(180deg, #fff, var(--amber));
+    box-shadow: 0 0 16px rgba(255,255,255,.55);
   }
-  #boot-state p { color: var(--text-muted); font-size: 14px; margin: 0; font-family: var(--font-body); }
+  .boot-top-body {
+    width: 92px; height: 44px; border-radius: 50% 50% 42% 42% / 65% 65% 100% 100%;
+    background: conic-gradient(from 0deg, #ff5a5f, #ffb020, #3ddc84, #4fc3f7, #b388ff, #ff5a5f);
+    box-shadow: 0 14px 34px rgba(255,176,32,.3), inset 0 0 26px rgba(255,255,255,.18);
+    animation: boot-spin 1s linear infinite;
+  }
+  .boot-top-glow {
+    width: 96px; height: 18px; margin-top: 10px; border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(255,176,32,.55), transparent 72%);
+    filter: blur(5px);
+    animation: boot-glow 1s ease-in-out infinite;
+  }
+  #boot-state p { color: var(--text-muted); font-size: 14px; margin: 0; font-family: var(--font-body); letter-spacing: .01em; }
+  @keyframes boot-spin { to { transform: rotate(360deg); } }
+  @keyframes boot-glow {
+    0%, 100% { opacity: .5; transform: scaleX(1); }
+    50% { opacity: 1; transform: scaleX(1.18); }
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   #error-banner {
@@ -696,19 +771,21 @@
     #sheet.open { transform: translateX(0); }
     #sheet-scrim { left: 84px; }
 
-    #list-header, #filter-chips { max-width: 900px; margin-left: auto; margin-right: auto; }
+    #list-header, #filter-chips { max-width: 1400px; margin-left: auto; margin-right: auto; }
     #list-container {
-      max-width: 900px; margin-left: auto; margin-right: auto;
-      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start;
+      max-width: 1400px; margin-left: auto; margin-right: auto;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; align-content: start;
     }
     .zone-card { margin: 0; } /* сетка уже даёт отступы через gap */
 
-    #screen-profile.active {
-      max-width: 920px; margin: 0 auto;
+    #profile-content {
+      max-width: 1100px; margin: 0 auto;
       display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-content: start;
     }
-    #screen-profile h1 { grid-column: 1 / -1; }
+    #profile-content h1 { grid-column: 1 / -1; }
     /* Широкие блоки — на всю ширину сетки, остальные карточки — по колонкам */
+    .profile-hero,
+    .tracker-card,
     .profile-block:has(#feedback-message),
     .profile-quote-card,
     #app-version { grid-column: 1 / -1; }
@@ -717,26 +794,25 @@
     #locate-btn, #search-btn { right: 24px; }
     #locate-btn { bottom: 24px; }
     #search-btn { bottom: 76px; }
-    #legend { left: 100px; bottom: 16px; }
+    #legend { left: 140px; bottom: 16px; }
     #demo-watermark { right: 24px; }
 
+    /* Сдвинута левее относительно колонки кнопок геолокации/зума (right:24),
+       чтобы не перекрывать их — раньше стояла над ними по вертикали. */
     #refine-panel {
-      left: auto; right: 24px; bottom: 140px; top: auto;
+      left: auto; right: 90px; bottom: 24px; top: auto;
       max-width: 380px; border-radius: 20px;
       border: 1px solid var(--hairline);
       box-shadow: 0 8px 40px rgba(0,0,0,.4);
     }
+
+    .maplibregl-ctrl-bottom-right { margin-bottom: 140px !important; }
   }
 
   @media (prefers-reduced-motion: reduce) {
     #sheet, #legend, #boot-state { transition: none; }
-    #status-pill .dot, #boot-state .ring { animation: none; }
+    .boot-top-body, .boot-top-glow { animation: none; }
   }
-@media (max-width: 480px) {
-  #weather-pill {
-    top: calc(max(16px, env(safe-area-inset-top)) + 46px);
-  }
-}
 </style>
 </head>
 <body>
@@ -757,7 +833,11 @@
 </div>
 
 <div id="boot-state">
-  <div class="ring"></div>
+  <div class="boot-top">
+    <div class="boot-top-spike"></div>
+    <div class="boot-top-body"></div>
+    <div class="boot-top-glow"></div>
+  </div>
   <p>Загружаю карту зон…</p>
 </div>
 
@@ -766,10 +846,6 @@
   <section id="screen-map" class="screen active">
     <div id="map"></div>
     <div id="map-tint"></div>
-    <div id="status-pill">
-      <span class="dot"></span>
-      <span>Садовое кольцо · <strong id="zone-count">—</strong> зон</span>
-    </div>
     <div id="layer-toggle">
       <button class="layer-btn active" data-layer="cluster">Зоны</button>
       <button class="layer-btn" data-layer="demo"><span class="demo-shine"></span>DEMO</button>
@@ -825,19 +901,31 @@
   </section>
 
   <section id="screen-profile" class="screen">
-    <h1>Профиль</h1>
-
-    <div class="profile-block" style="border-color: rgba(61,220,132,0.35);">
-      <h2>Без регистрации — намеренно</h2>
-      <p>Здесь нет входа, аккаунта и личного кабинета. Мы не собираем ни телефон, ни имя, ни что-либо, что можно привязать к тебе лично. Отметки «нашёл/не нашёл» анонимны и идут в общую копилку — они делают модель точнее для всех, а не для чьего-то личного профиля.</p>
+    <div id="profile-content">
+    <div class="profile-hero">
+      <h1>Профиль</h1>
+      <p class="profile-hero-sub">Без аккаунта и без личных данных — только общая, анонимная копилка отметок.</p>
     </div>
 
     <div class="profile-stat-card">
       <div>
         <div class="profile-stat-number" id="stat-total">—</div>
-        <div class="profile-stat-label">отметок от всех<br>с начала работы</div>
+        <div class="profile-stat-label" id="stat-label">отметок от всех<br>с начала работы</div>
       </div>
       <div class="profile-stat-sub" id="stat-breakdown">Загружаю…</div>
+    </div>
+
+    <div class="profile-block tracker-card">
+      <h2>Вклад сообщества</h2>
+      <div id="contribution-tracker" class="contribution-grid" aria-label="Активность за последние 12 недель"></div>
+      <div class="tracker-legend">
+        <span>меньше</span>
+        <span class="tracker-swatch" data-level="0"></span>
+        <span class="tracker-swatch" data-level="1"></span>
+        <span class="tracker-swatch" data-level="2"></span>
+        <span class="tracker-swatch" data-level="3"></span>
+        <span>больше</span>
+      </div>
     </div>
 
     <div class="profile-block">
@@ -845,15 +933,8 @@
       <div id="top-verified-list" style="font-size:13px; color:var(--text-muted);">Загружаю…</div>
     </div>
 
-
-    <div class="profile-block">
-      <h2>Как читать шкалу</h2>
-      <div class="profile-gradient-bar"></div>
-      <div class="profile-gradient-ticks"><span>0% занято</span><span>50%</span><span>100% свободно</span></div>
-    </div>
-
     <div class="profile-quote-card">
-      <p>«Индекс — это оценка на основе тарифа зоны, времени суток, дня недели, погоды и близости к центру, а не измеренное количество мест — таких данных не существует в открытом доступе. Каждая отметка «нашёл / не нашёл» делает его чуть точнее».</p>
+      <p>Индекс — оценка по тарифу, времени, погоде и близости к центру, а не точный подсчёт мест. Каждая отметка делает её чуть точнее.</p>
     </div>
 
     <div class="profile-pilot-card">
@@ -878,6 +959,7 @@
     </div>
 
     <div id="app-version">Индекс доступности парковки · пилот v0.1</div>
+    </div>
   </section>
 
 </div>
@@ -975,13 +1057,30 @@ async function loadCommunityStats() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const stats = await res.json();
     totalEl.textContent = stats.total_all_time;
+    document.getElementById('stat-label').innerHTML =
+      `${pluralRu(stats.total_all_time, 'отметка', 'отметки', 'отметок')} от всех<br>с начала работы`;
     subEl.textContent = `+${stats.total_today} сегодня. Спасибо всем, кто отмечает — это общая копилка, не личный счёт.`;
     const pulseEl = document.getElementById('pulse-number');
     if (pulseEl) pulseEl.textContent = stats.total_all_time;
+    renderContributionTracker(stats.daily || []);
   } catch (e) {
     totalEl.textContent = '—';
     subEl.textContent = 'Не удалось загрузить — проверь бэкенд.';
   }
+}
+
+function renderContributionTracker(daily) {
+  const grid = document.getElementById('contribution-tracker');
+  if (!grid || !daily.length) return;
+  // Уровни подобраны от разброса реальных значений, а не жёстко — если
+  // сообщество вырастет на порядок, шкала не "выцветет" в один цвет.
+  const max = Math.max(1, ...daily.map(d => d.count));
+  const levelOf = (n) => n === 0 ? 0 : n <= max * 0.25 ? 1 : n <= max * 0.6 ? 2 : 3;
+  grid.innerHTML = daily.map(d => {
+    const dateLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const label = `${d.count} ${pluralRu(d.count, 'отметка', 'отметки', 'отметок')} · ${dateLabel}`;
+    return `<div class="contribution-cell" data-level="${levelOf(d.count)}" title="${label}"></div>`;
+  }).join('');
 }
 
 async function loadTopVerified() {
@@ -997,7 +1096,7 @@ async function loadTopVerified() {
     el.innerHTML = data.zones.map(z =>
       `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--hairline);">
         <span style="color:var(--text-primary);">${z.name}</span>
-        <span>${z.feedback_count} отметок</span>
+        <span>${z.feedback_count} ${pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок')}</span>
       </div>`
     ).join('');
   } catch (e) {
@@ -1176,7 +1275,7 @@ resolveMapStyle().then((style) => {
     pitch: 0,
     attributionControl: { compact: true },
   });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right'); // позиция подстраивается CSS ниже (.maplibregl-ctrl-bottom-right), чтобы не перекрывать locate/search
   initMapLayers();
   initGeolocation();
   loadMetroLayer();
@@ -1191,26 +1290,14 @@ function initMapLayers() {
     // названия отдельных заведений (кафе, магазины) перегружали карту.
     // Убираем именно точки интереса, оставляя названия улиц и крупных
     // мест — это удерживает баланс между "совсем пусто" и "слишком много".
+    // Все текстовые подписи (улицы, районы, водоёмы, точки интереса) убраны
+    // целиком — они спорили по контрасту с цветными зонами и перегружали
+    // карту. Оставляем только геометрию: дороги, здания, воду, парки.
     const style = map.getStyle();
     if (style && style.layers) {
       style.layers.forEach(layer => {
-        const isPoi =
-          layer.id.toLowerCase().includes('poi') ||
-          (layer['source-layer'] && layer['source-layer'].toLowerCase().includes('poi'));
-        if (layer.type === 'symbol' && isPoi) {
-          map.setLayoutProperty(layer.id, 'visibility', 'none');
-          return;
-        }
-        // Многие подписи показывают одновременно английское и русское
-        // название друг под другом ("Moscow" / "Москва") — предпочитаем
-        // одно русское, если у слоя вообще есть текстовое поле.
         if (layer.type === 'symbol') {
-          try {
-            const hasTextField = map.getLayoutProperty(layer.id, 'text-field');
-            if (hasTextField) {
-              map.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name:ru'], ['get', 'name']]);
-            }
-          } catch (e) { /* не у всех символьных слоёв есть текст — пропускаем молча */ }
+          map.setLayoutProperty(layer.id, 'visibility', 'none');
         }
       });
     }
@@ -1222,6 +1309,16 @@ function initMapLayers() {
 
 let currentZoneId = null;
 let currentFeedbackLayer = 'demo';
+
+// Русское склонение по числу: pluralRu(1,'отметка','отметки','отметок') -> 'отметка'
+function pluralRu(n, one, few, many) {
+  n = Math.abs(n) % 100;
+  const n1 = n % 10;
+  if (n > 10 && n < 20) return many;
+  if (n1 > 1 && n1 < 5) return few;
+  if (n1 === 1) return one;
+  return many;
+}
 
 // ---------- Режим прогноза: индекс не на "сейчас", а на выбранные дату/время ----------
 // В этом режиме отметки "нашёл/не нашёл" отключены (см. openSheet) — реальный
@@ -1263,6 +1360,7 @@ document.getElementById('forecast-apply-btn').addEventListener('click', () => {
   closeSheet();
   loadZones();
   loadClusters();
+  loadWeather();
 });
 
 document.getElementById('forecast-cancel-btn').addEventListener('click', () => {
@@ -1276,6 +1374,7 @@ document.getElementById('forecast-cancel-btn').addEventListener('click', () => {
   closeSheet();
   loadZones();
   loadClusters();
+  loadWeather();
 });
 
 // ---------- Геолокация + "уточнить геопозицию" (как у Яндекса) ----------
@@ -1336,7 +1435,8 @@ async function loadContext() {
 
 async function loadWeather() {
   try {
-    const res = await fetch(`${API_BASE}/weather-now`);
+    const url = forecastAt ? `${API_BASE}/weather-now?at=${encodeURIComponent(forecastAt)}` : `${API_BASE}/weather-now`;
+    const res = await fetch(url);
     if (!res.ok) return;
     const w = await res.json();
     if (w.temp_c === null || w.temp_c === undefined) return;
@@ -1549,7 +1649,7 @@ function renderTrendIcon(trend) {
 function renderExtraMeta(props) {
   const parts = [renderTrendIcon(props.trend)];
   if (props.feedback_count > 0) {
-    parts.push(`<span>на основе ${props.feedback_count} отметок</span>`);
+    parts.push(`<span>на основе ${props.feedback_count} ${pluralRu(props.feedback_count, 'отметка', 'отметки', 'отметок')}</span>`);
   } else {
     parts.push('<span>пока без отметок — чистая оценка</span>');
   }
@@ -1584,7 +1684,7 @@ function openSheet(props, kind = 'demo') {
       ? `≈${props.potentially_free_min} свободно`
       : `≈${props.potentially_free_min}–${props.potentially_free_max} свободно`;
     document.getElementById('sheet-zone-sub').textContent =
-      `${props.segment_count} парковок · всего ${props.total_capacity} мест · ${freeText}`;
+      `${props.segment_count} ${pluralRu(props.segment_count, 'парковка', 'парковки', 'парковок')} · всего ${props.total_capacity} ${pluralRu(props.total_capacity, 'место', 'места', 'мест')} · ${freeText}`;
     setGauge(props.index_mean);
     if (props.index_min === props.index_max) {
       document.getElementById('gauge-number').textContent = `${props.index_min}%`;
@@ -1600,7 +1700,7 @@ function openSheet(props, kind = 'demo') {
     currentZoneId = props.id;
     document.getElementById('sheet-zone-name').textContent = props.name;
     document.getElementById('sheet-zone-sub').textContent =
-      `Всего ${props.car_capacity} мест · ≈${props.potentially_free ?? '—'} свободно`;
+      `Всего ${props.car_capacity} ${pluralRu(props.car_capacity, 'место', 'места', 'мест')} · ≈${props.potentially_free ?? '—'} свободно`;
     setGauge(props.index_value);
     document.getElementById('gauge-number').textContent = props.index_value + '%';
     document.getElementById('gauge-number').classList.remove('range');
@@ -1800,7 +1900,6 @@ async function loadZones() {
   latestGeojson = geojson;
   hideError();
   latestZones = geojson.features.map(f => f.properties);
-  document.getElementById('zone-count').textContent = latestZones.length;
 
   if (map.getSource('zones')) {
     map.getSource('zones').setData(geojson);
@@ -1938,7 +2037,7 @@ function renderList() {
       <div class="zone-badge" style="background:${colorDimForIndex(z.index_value)}; color:${colorForIndex(z.index_value)}">${z.index_value}%</div>
       <div class="zone-info">
         <div class="name">${favMark}${z.name}</div>
-        <div class="sub">${z.car_capacity} мест${z.feedback_count ? ' · ' + z.feedback_count + ' отметок' : ''}</div>
+        <div class="sub">${z.car_capacity} ${pluralRu(z.car_capacity, 'место', 'места', 'мест')}${z.feedback_count ? ' · ' + z.feedback_count + ' ' + pluralRu(z.feedback_count, 'отметка', 'отметки', 'отметок') : ''}</div>
       </div>`;
     card.addEventListener('click', () => openSheet(z));
     container.appendChild(card);
