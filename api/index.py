@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, Response
 from xml.sax.saxutils import escape as xml_escape
 from pydantic import BaseModel
 from sqlalchemy import create_engine, select, func
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import Session
 
 from lib.index_calc import ZoneFeatures, compute_availability_index, compute_proximity_exp, compute_factor_breakdown
@@ -66,8 +67,18 @@ ALTERNATIVE_MIN_INDEX = 66               # "высокая доступност�
 WALK_SPEED_M_PER_MIN = 75                # ~4.5 км/ч
 WALK_DETOUR_FACTOR = 1.3                 # поправка на то, что реальные улицы не по прямой
 
-_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=_connect_args)
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {"connect_timeout": 10}
+if DATABASE_URL.startswith("postgresql"):
+    # На бесплатном плане Neon база "засыпает" при простое — первое
+    # подключение после сна иногда обрывается ("server closed the connection
+    # unexpectedly"), это и есть настоящая причина случайных "не грузится".
+    # NullPool не держит соединения между вызовами serverless-функции (они
+    # всё равно не переживают заморозку/разморозку Vercel), а pool_pre_ping
+    # проверяет соединение перед каждым использованием и тихо переоткрывает
+    # его, если оно протухло, вместо того чтобы падать с ошибкой.
+    engine = create_engine(DATABASE_URL, connect_args=_connect_args, poolclass=NullPool, pool_pre_ping=True)
+else:
+    engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 Base.metadata.create_all(engine)
 
 app = FastAPI(title="Индекс доступности парковки — Москва (пилот: Садовое кольцо)")
@@ -775,31 +786,33 @@ def get_alternatives(zone_id: str):
             raise HTTPException(404, "Zone not found")
 
         results = compute_all_indices(session)
-        nearby = []
+        all_others = []
         for r in results:
             z = r["zone"]
-            if z.id == zone_id:
+            if z.id == zone_id or not z.lat or not z.lon:
                 continue
             dist_m = haversine_m(origin.lat, origin.lon, z.lat, z.lon)
-            if dist_m > ALTERNATIVE_SEARCH_RADIUS_M:
-                continue
             walk_min = round((dist_m * WALK_DETOUR_FACTOR) / WALK_SPEED_M_PER_MIN)
-            nearby.append({
+            all_others.append({
                 "zone_id": z.id, "name": z.name, "index_value": r["index"],
                 "distance_m": round(dist_m), "walk_minutes": max(walk_min, 1),
                 "lat": z.lat, "lon": z.lon,
                 "car_capacity": z.car_capacity or 0,
                 "potentially_free": round((z.car_capacity or 0) * r["index"] / 100),
             })
+        nearby = [c for c in all_others if c["distance_m"] <= ALTERNATIVE_SEARCH_RADIUS_M]
 
-        # Сначала пробуем только зоны с "высокой доступностью" (тот же порог,
-        # что в легенде карты). Если рядом таких нет вообще (типично для
-        # плотного центра, где везде оранжево-красно) — не отдаём пустой
-        # список, а показываем лучшее из того, что реально есть поблизости,
-        # а не молчим. Честно с реальным index_value, без прикрас.
+        # Три уровня, каждый следующий — только если предыдущий не дал ничего:
+        # 1) высокая доступность в радиусе, 2) лучшее из того, что реально есть
+        # в радиусе (даже если тоже оранжево-красное — честно, но не молчим),
+        # 3) на случай пустого радиуса (не должно происходить при текущей
+        # плотности пилота, но лучше перестраховаться) — просто ближайшие
+        # зоны вообще без ограничения по радиусу.
         candidates = [c for c in nearby if c["index_value"] >= ALTERNATIVE_MIN_INDEX]
         if not candidates:
             candidates = sorted(nearby, key=lambda c: -c["index_value"])[:3]
+        if not candidates:
+            candidates = sorted(all_others, key=lambda c: c["distance_m"])[:3]
         candidates.sort(key=lambda c: c["distance_m"])
         return {"origin_zone_id": zone_id, "alternatives": candidates[:3]}
 
