@@ -1629,6 +1629,21 @@ function stopBootTips() {
 }
 startBootTips();
 
+// Один повтор после короткой паузы — маскирует типичный для бесплатного
+// Neon "холодный старт" (первое подключение после простоя базы иногда
+// обрывается), не заставляя человека самого перезагружать страницу.
+async function fetchWithRetry(url, retries = 1, delayMs = 1400) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
+  } catch (e) {
+    if (retries <= 0) throw e;
+    await new Promise(r => setTimeout(r, delayMs));
+    return fetchWithRetry(url, retries - 1, delayMs);
+  }
+}
+
 // Русское склонение по числу: pluralRu(1,'отметка','отметки','отметок') -> 'отметка'
 function pluralRu(n, one, few, many) {
   n = Math.abs(n) % 100;
@@ -2113,7 +2128,8 @@ async function showAlternatives(originZoneId) {
   const list = document.getElementById('alt-list');
   const empty = document.getElementById('alt-empty');
   list.innerHTML = '';
-  empty.style.display = 'none';
+  empty.style.display = 'block';
+  empty.textContent = 'Ищу поблизости…';
   block.style.display = 'block';
 
   try {
@@ -2125,9 +2141,11 @@ async function showAlternatives(originZoneId) {
     const data = await res.json();
 
     if (!data.alternatives || data.alternatives.length === 0) {
+      empty.textContent = 'Свободных зон поблизости (10 мин пешком) сейчас не нашлось — придётся поискать дальше.';
       empty.style.display = 'block';
       return;
     }
+    empty.style.display = 'none';
 
     data.alternatives.forEach(alt => {
       const card = document.createElement('div');
@@ -2257,8 +2275,7 @@ async function loadZones() {
   let geojson;
   try {
     const url = forecastAt ? `${API_BASE}/zones?at=${encodeURIComponent(forecastAt)}` : `${API_BASE}/zones`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetchWithRetry(url);
     geojson = await res.json();
   } catch (e) {
     console.error('Не удалось загрузить зоны:', e);
@@ -2311,8 +2328,7 @@ async function loadClusters() {
   let geojson;
   try {
     const url = forecastAt ? `${API_BASE}/zone-clusters?at=${encodeURIComponent(forecastAt)}` : `${API_BASE}/zone-clusters`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetchWithRetry(url);
     geojson = await res.json();
   } catch (e) {
     console.error('Не удалось загрузить агрегированные зоны:', e);
