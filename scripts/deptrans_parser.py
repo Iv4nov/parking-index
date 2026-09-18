@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 import requests
 from bs4 import BeautifulSoup
 
-CHANNEL = "deptrans"  # уточнить точный @-юзернейм канала Дептранса перед запуском
+CHANNEL = "DtRoad"  # официальный канал "Дептранс Москвы"
 URL = f"https://t.me/s/{CHANNEL}"
 
 OCCUPANCY_PATTERN = re.compile(
