@@ -17,6 +17,7 @@
 import json
 import math
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +28,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from xml.sax.saxutils import escape as xml_escape
+from bs4 import BeautifulSoup
 from pydantic import BaseModel
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.pool import NullPool
@@ -279,6 +281,100 @@ async def telegram_webhook(update: dict):
     else:
         _tg_send(chat_id, _district_summary_reply())
     return {"ok": True}
+
+
+# ---------- Канал Б: официальные раскрытия Дептранса (см. deptrans_disclosures) ----------
+# Публичная веб-версия Telegram-канала (t.me/s/<channel>) — открытый HTML без
+# токена/регистрации. Дептранс редко публикует конкретные цифры occupancy по
+# улицам, поэтому это не подмешивается молча в расчёт по зоне (см. предыдущее
+# обсуждение) — то, что нашлось, просто показывается как отдельный честный
+# источник в профиле, без риска приписать цифру не той зоне.
+DEPTRANS_CHANNEL = "DtRoad"  # официальный канал "Дептранс Москвы"
+DEPTRANS_URL = f"https://t.me/s/{DEPTRANS_CHANNEL}"
+DEPTRANS_OCCUPANCY_RE = re.compile(
+    r"(?P<street>[А-ЯЁ][\w\s\.\-]{3,60}?)"
+    r"[^.]{0,40}?"
+    r"(?:загруженност\w+|занятост\w+)[^.]{0,20}?"
+    r"(?P<pct>\d{1,3})\s*%",
+    re.IGNORECASE,
+)
+
+
+def _parse_deptrans_disclosures(html: str) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    found = []
+    for post in soup.select(".tgme_widget_message"):
+        text_el = post.select_one(".tgme_widget_message_text")
+        if not text_el:
+            continue
+        text = text_el.get_text(separator=" ")
+        time_el = post.select_one("time")
+        ts = datetime.fromisoformat(time_el["datetime"]) if time_el and time_el.get("datetime") else datetime.now(timezone.utc)
+        link_el = post.select_one("a.tgme_widget_message_date")
+        post_url = link_el["href"] if link_el else DEPTRANS_URL
+        for match in DEPTRANS_OCCUPANCY_RE.finditer(text):
+            found.append({
+                "street_name": match.group("street").strip(),
+                "occupancy_pct": float(match.group("pct")),
+                "source_url": post_url,
+                "disclosed_at": ts,
+            })
+    return found
+
+
+@app.get("/api/cron/deptrans-sync")
+def deptrans_sync():
+    """Дёргается раз в день по Vercel Cron (см. vercel.json) — свежих постов
+    обычно 0, это нормально: Дептранс публикует такое нечасто, сюда просто
+    попадает то немногое, что реально нашлось."""
+    try:
+        resp = requests.get(DEPTRANS_URL, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+    except Exception as e:
+        return {"ok": False, "error": str(e), "added": 0}
+
+    found = _parse_deptrans_disclosures(resp.text)
+    added = 0
+    with Session(engine) as session:
+        for d in found:
+            # Дедупликация по (источник, улица, дата) — повторный прогон cron
+            # не плодит копии одного и того же поста.
+            exists = session.scalar(
+                select(DeptransDisclosure).where(
+                    DeptransDisclosure.source_url == d["source_url"],
+                    DeptransDisclosure.street_name == d["street_name"],
+                )
+            )
+            if exists:
+                continue
+            session.add(DeptransDisclosure(
+                street_name=d["street_name"], disclosed_occupancy_pct=d["occupancy_pct"],
+                source_url=d["source_url"], disclosed_at=d["disclosed_at"],
+            ))
+            added += 1
+        session.commit()
+    return {"ok": True, "found": len(found), "added": added}
+
+
+@app.get("/api/deptrans-latest")
+def deptrans_latest():
+    """Последние официальные раскрытия — для честной карточки в профиле.
+    Пустой список — нормальное и ожидаемое состояние большую часть времени."""
+    with Session(engine) as session:
+        rows = session.scalars(
+            select(DeptransDisclosure).order_by(DeptransDisclosure.disclosed_at.desc()).limit(3)
+        ).all()
+        return {
+            "disclosures": [
+                {
+                    "street_name": r.street_name,
+                    "occupancy_pct": r.disclosed_occupancy_pct,
+                    "source_url": r.source_url,
+                    "disclosed_at": r.disclosed_at.isoformat(),
+                }
+                for r in rows
+            ]
+        }
 
 
 class FeedbackIn(BaseModel):
