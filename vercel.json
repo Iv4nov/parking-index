@@ -12,5 +12,8 @@
     { "src": "/manifest.json", "dest": "/manifest.json" },
     { "src": "/sw.js", "dest": "/sw.js" },
     { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/deptrans-sync", "schedule": "0 6 * * *" }
   ]
 }
